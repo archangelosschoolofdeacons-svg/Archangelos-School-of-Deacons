@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#710d19">
+  <meta name="description" content="Archangelos School of Deacons | مدرسة أرشى أنجيلوس للشمامسة — مكتبة الألحان والقبطي والطقس لجميع المراحل.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Archangelos | أرشى أنجيلوس">
+  <script>
+    try {
+      const savedTheme = localStorage.getItem('archangelos-theme') || 'system';
+      const darkTheme = savedTheme === 'dark' || (savedTheme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+      const savedLocale = localStorage.getItem('archangelos-locale') || 'system';
+      const deviceLanguage = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+      const activeLocale = savedLocale === 'ar' || savedLocale === 'en' ? savedLocale : (deviceLanguage.toLowerCase().startsWith('ar') ? 'ar' : 'en');
+      document.documentElement.dataset.theme = darkTheme ? 'dark' : 'light';
+      document.documentElement.dataset.themeChoice = savedTheme;
+      document.documentElement.dataset.localeChoice = savedLocale;
+      document.documentElement.lang = activeLocale;
+      document.documentElement.dir = activeLocale === 'ar' ? 'rtl' : 'ltr';
+      window.__archangelosLocale = activeLocale;
+      document.querySelector('meta[name="theme-color"]').content = darkTheme ? '#171514' : '#710d19';
+    } catch (_) {
+      document.documentElement.dataset.theme = 'light';
+      document.documentElement.dataset.themeChoice = 'system';
+      const deviceLanguage = navigator.language || 'en';
+      window.__archangelosLocale = deviceLanguage.toLowerCase().startsWith('ar') ? 'ar' : 'en';
+      document.documentElement.lang = window.__archangelosLocale;
+      document.documentElement.dir = window.__archangelosLocale === 'ar' ? 'rtl' : 'ltr';
+      document.documentElement.dataset.localeChoice = 'system';
+    }
+  </script>
+  <title>Archangelos School of Deacons | مدرسة أرشى أنجيلوس للشمامسة</title>
+  <link id="appManifest" rel="manifest" href="manifest.json">
+  <script>document.getElementById('appManifest').href = `manifest-${window.__archangelosLocale || 'en'}.json`;</script>
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="offline-banner" id="offlineBanner" role="status" hidden>أنت غير متصل بالإنترنت — المحتوى المحفوظ على هذا الجهاز ما زال متاحًا.</div>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#/" aria-label="الصفحة الرئيسية">
+        <img src="assets/logo.png" alt="شعار مدرسة أرشى أنجيلوس للشمامسة">
+        <span class="brand-copy"><strong class="brand-name">Archangelos School of Deacons</strong><small>مدرسة أرشى أنجيلوس للشمامسة</small></span>
+      </a>
+      <nav class="main-nav" aria-label="التنقل الرئيسي">
+        <a href="#/" data-nav="home">الرئيسية</a>
+        <a href="#/announcements" data-nav="announcements">الإعلانات</a>
+        <a href="#/about" data-nav="about">عن المدرسة</a>
+        <button class="nav-language-switch" id="languageSwitch" type="button" data-no-translate aria-label="التبديل إلى اللغة الإنجليزية">English</button>
+      </nav>
+      <div class="header-actions">
+        <div class="theme-control">
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="المظهر واللغة" aria-expanded="false" aria-controls="themeMenu">
+            <span class="theme-current-icon" id="themeCurrentIcon" aria-hidden="true">◐</span>
+            <span class="theme-current-label" id="themeCurrentLabel">حسب الجهاز</span>
+          </button>
+          <div class="theme-menu" id="themeMenu" role="group" aria-label="إعدادات المظهر واللغة" hidden>
+            <p class="settings-group-title">المظهر</p>
+            <button type="button" data-theme-choice="system"><span aria-hidden="true">◐</span> حسب الجهاز</button>
+            <button type="button" data-theme-choice="light"><span aria-hidden="true">☀</span> فاتح</button>
+            <button type="button" data-theme-choice="dark"><span aria-hidden="true">☾</span> داكن</button>
+            <hr>
+            <p class="settings-group-title">لغة التطبيق</p>
+            <p class="settings-hint">اختيار العربية أو English يدويًا يتجاوز لغة الجهاز ويظل محفوظًا.</p>
+            <button type="button" data-locale-choice="system"><span aria-hidden="true">◉</span> حسب لغة الجهاز</button>
+            <button type="button" data-locale-choice="ar"><span aria-hidden="true">ع</span> العربية</button>
+            <button type="button" data-locale-choice="en"><span aria-hidden="true">A</span> English</button>
+            <hr>
+            <p class="settings-group-title">الإشعارات</p>
+            <button id="notificationToggle" type="button" data-notification-action aria-pressed="false">
+              <span aria-hidden="true">♧</span><span id="notificationStatus" class="notification-status">فعّل إشعارات المواد الجديدة</span>
+            </button>
+          </div>
+        </div>
+        <button class="button button-outline install-button" id="installButton" type="button" aria-label="تثبيت التطبيق" hidden>تثبيت التطبيق <span aria-hidden="true">↓</span></button>
+        <button class="icon-button menu-toggle" id="menuToggle" type="button" aria-label="فتح القائمة" aria-expanded="false"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" class="page-shell" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <div class="footer-main">
+      <div class="footer-brand"><img src="assets/logo.png" alt=""><div><strong>Archangelos School of Deacons</strong><p>مدرسة أرشى أنجيلوس للشمامسة</p></div></div>
+      <div class="footer-links"><a href="#/about">عن المدرسة</a><a href="#/announcements">الإعلانات</a><a href="#/admin">إدارة المحتوى</a></div>
+      <div class="footer-note">تطبيق تعليمي يعمل على الهاتف والكمبيوتر.</div>
+    </div>
+    <div class="footer-bottom"><span id="footerName" data-no-translate>Archangelos School of Deacons</span><span>«رتّلوا للرب ترنيمة جديدة»</span></div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" data-no-translate></div>
+  <div class="modal-backdrop" id="installModal" hidden>
+    <section class="install-modal" role="dialog" aria-modal="true" aria-labelledby="installTitle">
+      <button class="modal-close" type="button" data-close-install aria-label="إغلاق">×</button>
+      <div class="modal-icon">⌂</div>
+      <h2 id="installTitle">أضف المدرسة إلى شاشتك</h2>
+      <p>على iPhone أو iPad: اضغط زر المشاركة في Safari، ثم اختر <strong>إضافة إلى الشاشة الرئيسية</strong>.</p>
+      <p>على الكمبيوتر أو Android: افتح قائمة المتصفح واختر <strong>تثبيت التطبيق</strong> أو <strong>إضافة إلى الشاشة الرئيسية</strong>.</p>
+    </section>
+  </div>
+  <script src="localization.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
