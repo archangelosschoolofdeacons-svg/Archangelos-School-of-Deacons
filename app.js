@@ -1,3 +1,5 @@
+import { injectSpeedInsights } from '@vercel/speed-insights';
+
 const grades = [
   { id: 'kg', title: 'رياض الأطفال', short: 'KG', subtitle: 'روضة الملائكة', icon: '✿', description: 'بدايتنا مع التسبيح والتعلّم بمحبة.' },
   { id: 'g12', title: 'الصفان الأول والثاني', short: '١–٢', subtitle: 'المرحلة الأولى', icon: '✎', description: 'خطوات أولى في الألحان واللغة والطقس.' },
@@ -491,7 +493,7 @@ function renderAnnouncements() {
 }
 
 function renderAbout() {
-  return `${pageBanner('عن المدرسة','Archangelos School of Deacons · مدرسة أرشى أنجيلوس للشمامسة', [{ label: 'الرئيسية', href: '/' },{ label: 'عن المدرسة' }])}<section class="section container"><div class="about-grid"><div class="about-mark"><img src="./assets/logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div><div class="about-copy"><span class="eyebrow">نتعلّم بمحبة</span><h2>نتعلّم ونرتّل ونخدم</h2><p>مدرسة أرشى أنجيلوس للشمامسة (Archangelos School of Deacons) مساحة تعليمية تساعد الطلاب على التدرّج في تعلّم الألحان واللغة القبطية والطقس الكنسي، من رياض الأطفال حتى خورس الشمامسة.</p><p>صُممت المكتبة لتكون واضحة على الهاتف والكمبيوتر، وتجمع مواد كل مرحلة في مكان واحد، مع إمكان تثبيت التطبيق والرجوع إلى المواد المحفوظة دون اتصال.</p><div class="about-values"><div class="about-value"><span>♫</span> تعلّم الألحان بالتدرّج والاستماع</div><div class="about-value"><span>ⲙ</span> التعرّف إلى اللغة القبطية</div><div class="about-value"><span>✧</span> فهم الطقس والخدمة الكنسية</div></div></div></div></section>`;
+  return `${pageBanner('عن المدرسة','Archangelos School of Deacons · مدرسة أرشى أنجيلوس للشمامسة', [{ label: 'الرئيسية', href: '/' },{ label: 'عن المدرسة' }])}<section class="section container"><div class="about-grid"><div class="about-mark"><img src="./assets/logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div><div class="about-copy"><span class="eyebrow">نتعلّم بمحبة</span><h2>نتعلّم ونرتّل ونخدم</h2><p>مدرسة أرشى أنجيلوس للشمامسة (Archangelos School of Deacons) مساحة تعليمية تساعد الطلاب على التدرّج في تعلّم الألحان واللغة القبطية والطقس الكنسي، من رياض الأطفال حتى خورس الشمامسة.</p><p>صُممت المكتبة لتكون واضحة على الهاتف والكمبيوتر، وتجمع مواد كل مرحلة في مكان واحد، مع إمكان تثبيت التطبيق والرجوع إلى المواد المحفوظة دون اتصال.</p><div class="about-values"><div class="about-value"><span>♫</span> تعلّم ��لألحان بالتدرّج والاستماع</div><div class="about-value"><span>ⲙ</span> التعرّف إلى اللغة القبطية</div><div class="about-value"><span>✧</span> فهم الطقس والخدمة الكنسية</div></div></div></div></section>`;
 }
 
 function monitorLogoImages(root = document) {
@@ -848,6 +850,7 @@ document.querySelectorAll('[data-close-install]').forEach((button) => button.add
 document.getElementById('installModal').addEventListener('click', (event) => { if (event.target.id === 'installModal') event.currentTarget.hidden = true; });
 
 async function start() {
+  injectSpeedInsights();
   monitorLogoImages(document);
   if (location.protocol === 'file:') {
     try {
