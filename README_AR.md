@@ -1,37 +1,71 @@
-# مدرسة أرشى أنجيلوس للشمامسة — نسخة Vercel + Supabase
+# مدرسة أرشى أنجيلوس للشمامسة
 
-هذه النسخة تحتفظ بتصميم الموقع العربي والإنجليزي، وتستخدم Vercel لتشغيل واجهة الموقع وواجهات API، وSupabase لحفظ بيانات المواد والملفات في تخزين سحابي مشترك. بعد الإعداد، يمكن للطلاب فتح نفس رابط Vercel من أجهزة مختلفة ورؤية المواد المنشورة نفسها.
+تحتفظ هذه النسخة بالموقع الثابت الحالي باللغتين، وتربطه بخدمة Cloudflare Worker وقاعدة D1 وحاوية R2 الموجودين بالفعل.
 
-## خطوات النشر
+## النشر
 
-### ١) إعداد Supabase
-1. أنشئ مشروعًا من https://supabase.com/.
-2. افتح **SQL Editor → New query**.
-3. انسخ محتوى الملف `supabase/schema.sql` كاملًا، ثم نفّذه.
-4. من **Project Settings → API** أو **Connect** انسخ رابط المشروع ومفتاح `service_role` السري. لا تضع هذا المفتاح داخل ملفات `public` أو في كود المتصفح.
+### واجهة GitHub Pages
 
-الملف ينشئ جدول `resources` وحاوية تخزين باسم `school-materials`. الملفات المنشورة متاحة للقراءة العامة، لكن الكتابة إلى قاعدة البيانات والتخزين تتم من خلال API بعد التحقق من جلسة المسؤول.
+انشر محتويات هذا المجلد في جذر مستودع GitHub Pages الحالي. أبقِ `index.html` و`app.js` و`localization.js` و`styles.css` و`sw.js` وملفات manifest ومجلد `assets/` معًا. لا تحتاج الواجهة إلى خطوة بناء. عنوان API مضبوط مسبقًا على:
 
-### ٢) رفع المشروع إلى GitHub ثم Vercel
-1. ارفع **محتويات هذا المجلد** إلى جذر مستودع GitHub. يجب أن تكون المجلدات `api/` و`public/` و`supabase/` والملفات `vercel.json` و`package.json` في الجذر.
-2. افتح https://vercel.com/dashboard ثم **Add New → Project**، واستورد مستودع GitHub، واستخدم إعداد **Other** ثم انشر المشروع.
-3. من إعدادات مشروع Vercel افتح **Settings → Environment Variables** وأضف المتغيرات التالية لبيئة Production:
-   - `SUPABASE_URL`: رابط مشروع Supabase.
-   - `SUPABASE_SERVICE_ROLE_KEY`: المفتاح السري `service_role` من Supabase.
-   - `ARCHANGELOS_ADMIN_USERNAME`: اسم مسؤول مثل `admin`.
-   - `ARCHANGELOS_ADMIN_PASSWORD`: كلمة مرور فريدة لا تقل عن 12 حرفًا.
-   - `ARCHANGELOS_SESSION_SECRET`: سر عشوائي لا يقل عن 32 حرفًا. استخدم مدير كلمات مرور أو أمر `openssl rand -base64 48` لتوليده.
-4. أعد النشر بعد إضافة المتغيرات.
-5. افتح رابط Vercel، ثم **إدارة المحتوى**، وسجّل الدخول، وارفع ملفًا تجريبيًا. بعد ذلك افتح رابط Vercel نفسه من جهاز آخر وتأكد أن الملف ظاهر.
+`https://archangelos-deacons-api-2026.archangelosschoolofdeacons.workers.dev`
 
-### ٣) ملاحظات مهمة
-- لا تستخدم رابط GitHub Pages كرابط الموقع النهائي؛ فهو لا يشغّل واجهات `/api/*`. شارك رابط Vercel مع الطلاب.
-- يتم رفع الملفات مباشرة من المتصفح إلى Supabase Storage عبر رابط رفع مؤقت موقّع؛ لذلك لا تمر الملفات الكبيرة عبر حد حجم طلبات Vercel Functions.
-- حد الرفع في هذه النسخة **50 ميجابايت للملف** ليتوافق مع حدود شائعة في خطط Supabase. راجع حدود خطتك قبل زيادته.
-- حاوية الملفات عامة للقراءة حتى يستطيع الطلاب تشغيل المواد المنشورة. لا ترفع ملفات خاصة أو حساسة.
-- لا تنشر كلمة مرور المسؤول أو مفتاح `service_role` أو سر الجلسة داخل GitHub.
-- المحتوى القديم المحفوظ محليًا في المتصفح أو داخل قاعدة SQLite سابقة لن ينتقل تلقائيًا إلى Supabase؛ ستحتاج إلى إعادة رفع المواد أو استيرادها بعد النشر.
-- هذه النسخة لا تستخدم `server.py` القديم؛ واجهة API الجديدة موجودة في `api/[...path].js`.
+### Cloudflare Worker
 
-## المعاينة المحلية
-يمكن فتح `public/index.html` لمعاينة التصميم فقط. تسجيل دخول المسؤول والمزامنة السحابية يتطلبان نشر المشروع على Vercel وضبط متغيرات Supabase.
+يوجد إعداد النشر في `worker/wrangler.toml`. قبل النشر، استبدل `REPLACE_WITH_EXISTING_DATABASE_ID` بمعرّف قاعدة `archangelos-content` الموجودة. لا تنشئ قاعدة D1 أو حاوية R2 إضافية. تأكد من أن الربطين هما `DB` مع `archangelos-content` و`MEDIA` مع `archangelos-media`.
+
+من مجلد `worker` وباستخدام Node.js 20 أو أحدث:
+
+```powershell
+npm install
+npx wrangler whoami
+npx wrangler deploy
+```
+
+عند إعادة نشر Worker نفسه، تبقى قيمة السر الحالية `ADMIN_PASSWORD`. تحقق من وجودها في لوحة Cloudflare أو باستخدام `npx wrangler secret list`. استخدم `npx wrangler secret put ADMIN_PASSWORD` فقط إذا كانت مفقودة أو يلزم تغييرها؛ سيطلب Wrangler القيمة تفاعليًا. لا تضعها في هذا المستودع أو في كود الواجهة. اسم المستخدم `admin` وأصل GitHub Pages المحدد متغيران عاديان في `wrangler.toml`.
+
+يخدم Worker واجهات API والملفات، بينما يخدم GitHub Pages الواجهة الثابتة فقط. ملفات `server.py` وإعدادات Render وVercel القديمة ليست جزءًا من هذا النشر.
+
+## قاعدة البيانات والإجراءات اليدوية
+
+لا تُحذف المواد الحالية ولا توجد ترحيلة لجدول الموارد. يقرأ Worker أعمدة `resources` الحالية ويكتب `id` و`title` و`description` و`grade_id` و`subject_id` و`term_id` و`kind` و`url` و`file_name` و`updated_at`.
+
+يستخدم الرفع أعمدة `uploads` الحالية: `id` و`objectKey` و`uploadId` و`metadataJson` و`expectedSize` و`contentType` و`createdAt` و`owner`، وأعمدة `upload_parts`: `uploadId` و`partNumber` و`etag`. لا تحتاج هذه الجداول إلى ترحيلة إذا كانت أعمدتها كما وردت.
+
+يفحص Worker أعمدة `admin_sessions` ويدعم أسماء شائعة لمعرّف الجلسة وبصمة CSRF ووقت الانتهاء. افحص الجدول أولًا عبر `PRAGMA table_info(admin_sessions);`. إذا كانت الأعمدة الثلاثة التالية غير موجودة، أضفها فقط:
+
+```sql
+ALTER TABLE admin_sessions ADD COLUMN tokenHash TEXT;
+ALTER TABLE admin_sessions ADD COLUMN csrfToken TEXT;
+ALTER TABLE admin_sessions ADD COLUMN expiresAt TEXT;
+```
+
+إذا لم يكن الجدول نفسه موجودًا، أنشئ `admin_sessions` بهذا الشكل بدل إنشاء جدول جلسات آخر:
+
+```sql
+CREATE TABLE admin_sessions (
+  tokenHash TEXT PRIMARY KEY,
+  csrfToken TEXT NOT NULL,
+  username TEXT NOT NULL,
+  expiresAt TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+```
+
+لا تنفّذ `ALTER TABLE` لعمود موجود. لا تتطلب هذه النسخة ترحيلات SQL أخرى.
+
+## حدود الرفع
+
+يرسل المتصفح أجزاء الملف بالتتابع، عادةً بحجم 8 MiB. يرفع Worker حجم الجزء تدريجيًا للملفات الكبيرة حتى 64 MiB كي لا يتجاوز حد R2 البالغ 10,000 جزء. الحد المضبوط في التطبيق هو 625 GiB، لكنه ليس ضمانًا بأن خطة الحساب قادرة على تخزين هذا الحجم أو تقديمه. توثّق Cloudflare حدًا أدنى قدره 5 MiB للجزء (باستثناء الأخير)، وحدًا أقصى 5 GiB للجزء، و10,000 جزء، وحجمًا أقصى قدره 5 TiB للكائن متعدد الأجزاء. [توثيق R2](https://developers.cloudflare.com/r2/objects/upload-objects/)
+
+لا يرسل Worker الفيديو كاملًا في طلب واحد. يختلف حد جسم الطلب حسب خطة Cloudflare (حاليًا 100 MB لـ Free وPro، و200 MB لـ Business، وحتى 5 GB لـ Enterprise). تظل حدود الحساب والحصص والتخزين والعمليات والنطاق الترددي سارية. حجم الجزء الأقصى هنا 64 MiB، لكن راجع إعدادات الحساب الحالية قبل نشر ملفات كبيرة. [حدود Workers](https://developers.cloudflare.com/workers/platform/limits/)
+
+## الفحوصات المحلية
+
+```powershell
+cd worker
+npm test
+npm run check
+```
+
+طلبات قراءة الموارد والوسائط عامة ولا تحمل بيانات اعتماد المسؤول. تحفظ الواجهة رمز Bearer ورمز CSRF في `sessionStorage` الخاص بعلامة التبويب، ويتحقق Worker من كل عملية كتابة. كلمة المرور لا تدخل في ملفات الواجهة.
