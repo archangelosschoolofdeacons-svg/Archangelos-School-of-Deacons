@@ -1,36 +1,37 @@
-# Archangelos School of Deacons
+# Archangelos School of Deacons — Vercel + Supabase
 
-Bilingual installable PWA with a shared Python content server. Published audio, images, PDFs, and videos are stored on the server, so visitors on different devices see the same published materials.
+This version keeps the existing bilingual PWA design and uses Vercel Functions for the API, Supabase Postgres for shared resource metadata, and Supabase Storage for uploaded media. Students on different devices see the same published materials.
 
-## Deploy so uploads work from any device
+## Deploy in this order
 
-**The app must run on a shared server. GitHub Pages alone cannot run `server.py`, save uploaded files, or provide the `/api/*` endpoints.** This project includes `render.yaml` for deployment on Render with a persistent disk.
+### 1) Create Supabase storage and database
+1. Create a project at https://supabase.com/.
+2. Open **SQL Editor → New query**.
+3. Paste and run the complete `supabase/schema.sql` file from this repository.
+4. In **Project Settings → API** (or **Connect**), copy the project URL and the **service_role** secret key. Keep the service-role key private; it belongs only in Vercel server environment variables.
 
-1. Push the contents of this project folder to a GitHub repository (keep `render.yaml` and `server.py` in the repository root).
-2. In Render, choose **New → Blueprint**, connect that repository, and apply the blueprint.
-3. When prompted for `ARCHANGELOS_ADMIN_PASSWORD`, set a unique password of at least 12 characters. Keep it private.
-4. Wait for deployment to finish. Open the **Render service URL** and test the admin login and uploads.
-5. Share that Render URL with students and administrators. All devices must use the same hosted URL to see the same published resources.
+The SQL creates the `resources` table and a public-read `school-materials` bucket. Anonymous users are not granted database writes. All write actions go through the Vercel API after administrator-session and CSRF checks.
 
-The included Render configuration uses a persistent disk mounted at `/var/data`. A persistent disk requires a paid Render web-service plan; do not switch to an ephemeral/free instance if uploaded materials must survive redeploys or restarts. Back up `/var/data` regularly.
+### 2) Deploy this repository to Vercel
+1. Upload the **contents of this folder** to the root of a GitHub repository. The root should contain `vercel.json`, `package.json`, `api/`, `public/`, and `supabase/`.
+2. In https://vercel.com/dashboard choose **Add New → Project**, import that repository, and deploy with the **Other** framework preset. The static site is in `public/`; API functions are in `api/`.
+3. In the Vercel project, open **Settings → Environment Variables** and add these variables for Production (and Preview if you need preview deployments):
+   - `SUPABASE_URL` — Supabase project URL.
+   - `SUPABASE_SERVICE_ROLE_KEY` — Supabase `service_role` key. Never put this key in `public/` or frontend code.
+   - `ARCHANGELOS_ADMIN_USERNAME` — for example `admin`.
+   - `ARCHANGELOS_ADMIN_PASSWORD` — a unique password of at least 12 characters.
+   - `ARCHANGELOS_SESSION_SECRET` — a random secret of at least 32 characters. Generate one with `openssl rand -base64 48` or a password manager.
+4. Redeploy after adding/changing environment variables.
+5. Open the Vercel production URL, go to **إدارة المحتوى**, sign in with the configured admin credentials, upload a test file, then open the same Vercel URL on another device.
 
-## Local development
+### 3) Notes
+- Do not use the old GitHub Pages URL as the live app URL: GitHub Pages does not run the `/api/*` functions. Share the Vercel production URL with students.
+- Uploaded media is sent directly from the browser to Supabase Storage using a short-lived signed upload URL, so large media files do not pass through the Vercel function request body limit.
+- This bundle limits files to **50 MB** to match common Supabase project limits. Confirm the upload-size limit in your Supabase plan before increasing it.
+- The Storage bucket is public-read so published media can be played by students. Do not upload private or sensitive files.
+- The administrator password and session secret must remain server-side. Never commit `.env` or the service-role key.
+- Existing content stored in a browser's IndexedDB or in an earlier local/Render SQLite database is not automatically migrated. Import or re-upload that content after deployment if needed.
+- The old Python `server.py` is not used by this Vercel version. The Vercel API is implemented in `api/[...path].js`.
 
-Requires Python 3.10 or later. From this folder:
-
-```powershell
-$env:ARCHANGELOS_ADMIN_USERNAME = "admin"
-$env:ARCHANGELOS_ADMIN_PASSWORD = "replace-with-a-long-unique-password"
-python server.py
-```
-
-Open http://localhost:8000. `localhost` is only available on the computer running the server.
-
-## Storage and access
-
-- `server.py` serves the website and the `/api/*` endpoints from the same HTTPS origin.
-- `content.sqlite3` stores metadata; uploaded media is stored in the `uploads` folder under `ARCHANGELOS_DATA_DIR`.
-- Material reads are public; create, update, and delete require administrator login and a CSRF token.
-- Supported uploads: audio, video, images, and PDFs; maximum upload size is 100 MB per file.
-- Theme and language preferences remain local to each browser.
-- GitHub Pages may still host source code, but the live app must be opened from the shared Python server URL for cross-device uploads to work.
+## Local preview
+Open `public/index.html` to preview the interface only. Shared storage and admin APIs require a deployed Vercel project with the Supabase environment variables configured.
