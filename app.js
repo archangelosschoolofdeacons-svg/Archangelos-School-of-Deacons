@@ -35,6 +35,10 @@ let editId = null;
 let installPrompt = null;
 let toastTimer;
 let currentLocale = window.__archangelosLocale || 'en';
+let storageMode = 'unavailable';
+let csrfToken = '';
+let adminUsername = '';
+let knownResourceIds = new Set();
 const objectUrls = new Map();
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 const deviceLocale = () => {
@@ -276,6 +280,66 @@ function readAllRecords() {
   });
 }
 
+function apiEndpoint(path) {
+  return new URL(path, document.baseURI).toString();
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(apiEndpoint(path), {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...options
+  });
+  const contentType = response.headers.get('Content-Type') || '';
+  const result = contentType.includes('application/json') ? await response.json() : null;
+  if (!response.ok) {
+    const error = new Error(result?.error || `Server request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+
+async function connectSharedServer() {
+  const [session, sharedRecords] = await Promise.all([
+    apiRequest('./api/session'),
+    apiRequest('./api/resources')
+  ]);
+  storageMode = 'server';
+  csrfToken = session.csrfToken || '';
+  adminUsername = session.authenticated ? session.username : '';
+  records = sharedRecords;
+  knownResourceIds = new Set(records.map((record) => record.id));
+  refreshObjectUrls();
+}
+
+async function syncSharedResources() {
+  if (storageMode !== 'server' || document.visibilityState === 'hidden') return;
+  try {
+    const latest = await apiRequest('./api/resources');
+    const newRecords = latest.filter((record) => !knownResourceIds.has(record.id));
+    const changed = latest.length !== records.length || latest.some((record) => {
+      const previous = records.find((item) => item.id === record.id);
+      return !previous || previous.updatedAt !== record.updatedAt;
+    });
+    knownResourceIds = new Set(latest.map((record) => record.id));
+    if (!changed) return;
+    records = latest;
+    refreshObjectUrls();
+    if (!editId) {
+      const scrollPosition = window.scrollY;
+      render();
+      window.scrollTo({ top: scrollPosition, behavior: 'auto' });
+    }
+    if (newRecords.length) {
+      announceToast(localizedNewMaterialMessage(newRecords[0]), false);
+      newRecords.forEach(notifyNewMaterial);
+    }
+  } catch (error) {
+    console.warn('Could not refresh shared materials', error);
+  }
+}
+
 function writeRecord(record) {
   return new Promise((resolve, reject) => {
     const request = database.transaction(storeName, 'readwrite').objectStore(storeName).put(record);
@@ -302,7 +366,8 @@ function refreshObjectUrls() {
 
 function mediaUrl(record) {
   if (record.mediaBlob instanceof Blob) return objectUrls.get(record.id) || '';
-  return record.url || '';
+  if (record.fileUrl) return /^\.\/uploads\/[a-f0-9]{32}\.[a-z0-9]{1,8}$/i.test(record.fileUrl) ? record.fileUrl : '';
+  return safeExternalUrl(record.url);
 }
 
 function safeExternalUrl(value) {
@@ -319,8 +384,8 @@ function youtubeEmbed(value) {
   try {
     const url = new URL(safe);
     let id = '';
-    if (url.hostname.endsWith('youtu.be')) id = url.pathname.split('/').filter(Boolean)[0] || '';
-    else if (url.hostname.includes('youtube.com')) id = url.searchParams.get('v') || url.pathname.match(/\/embed\/([^/?]+)/)?.[1] || '';
+    if (url.hostname === 'youtu.be') id = url.pathname.split('/').filter(Boolean)[0] || '';
+    else if (url.hostname === 'youtube.com' || url.hostname.endsWith('.youtube.com')) id = url.searchParams.get('v') || url.pathname.match(/\/(?:embed|shorts)\/([^/?]+)/)?.[1] || '';
     return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}` : '';
   } catch { return ''; }
 }
@@ -446,25 +511,37 @@ function monitorLogoImages(root = document) {
 function adminFormMarkup() {
   const selected = (value, current) => value === current ? 'selected' : '';
   const record = records.find((item) => item.id === editId);
-  return `<section class="admin-panel"><h2>${record ? 'تعديل المادة' : 'إضافة مادة تعليمية'}</h2><p>أضف ملفًا من جهازك أو رابط فيديو. تحفظ المواد في هذا المتصفح.</p><form class="admin-form" id="resourceForm">
-    <div class="form-field"><label for="resourceTitle">عنوان المادة</label><input id="resourceTitle" name="title" required maxlength="100" placeholder="مثال: لحن تين أوأوشت"></div>
-    <div class="form-grid"><div class="form-field"><label for="resourceGrade">المرحلة</label><select id="resourceGrade" name="gradeId" required>${grades.map((grade) => `<option value="${grade.id}" ${selected(grade.id,record?.gradeId)}>${esc(grade.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceSubject">المادة</label><select id="resourceSubject" name="subjectId" required>${subjects.map((subject) => `<option value="${subject.id}" ${selected(subject.id,record?.subjectId)}>${esc(subject.title)}</option>`).join('')}</select></div></div>
-    <div class="form-grid"><div class="form-field"><label for="resourceTerm">الفصل الدراسي</label><select id="resourceTerm" name="termId" required>${terms.map((term) => `<option value="${term.id}" ${selected(term.id,record?.termId)}>${esc(term.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceType">نوع المحتوى</label><select id="resourceType" name="type" required>${['audio','video','pdf','image'].map((type) => `<option value="${type}" ${selected(type,record?.type)}>${typeName(type)}</option>`).join('')}</select></div></div>
-    <div class="form-field"><label for="resourceDescription">وصف مختصر</label><textarea id="resourceDescription" name="description" maxlength="500" placeholder="أضف شرحًا يساعد الطالب على الاستفادة من المادة">${esc(record?.description || '')}</textarea></div>
-    <div class="form-field"><label for="resourceFile">رفع ملف من الجهاز</label><input id="resourceFile" name="file" type="file" accept="audio/*,video/*,application/pdf,image/*"><span class="form-hint">${record?.mediaBlob ? 'توجد نسخة مرفوعة. اختر ملفًا جديدًا لاستبدالها.' : 'للملفات الكبيرة، استخدم رابطًا مباشرًا أو رابط YouTube.'}</span></div>
+  return `<section class="admin-panel"><h2>${record ? 'تعديل المادة' : 'إضافة مادة تعليمية'}</h2><p>أضف ملفًا من جهازك أو رابط فيديو. تحفظ المواد على الخادم المشترك.</p><form class="admin-form" id="resourceForm">
+    <div class="form-field"><label for="resourceTitle">عنوان المادة</label><input id="resourceTitle" name="title" required maxlength="100" value="${esc(record?.title || '')}" placeholder="مثال: لحن تين أوأوشت"></div>
+    <div class="form-grid"><div class="form-field"><label for="resourceGrade">المرحلة</label><select id="resourceGrade" name="gradeId" required><option value="" disabled ${record ? '' : 'selected'}>اختر المرحلة</option>${grades.map((grade) => `<option value="${grade.id}" ${selected(grade.id,record?.gradeId)}>${esc(grade.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceSubject">المادة</label><select id="resourceSubject" name="subjectId" required><option value="" disabled ${record ? '' : 'selected'}>اختر المادة</option>${subjects.map((subject) => `<option value="${subject.id}" ${selected(subject.id,record?.subjectId)}>${esc(subject.title)}</option>`).join('')}</select></div></div>
+    <div class="form-grid"><div class="form-field"><label for="resourceTerm">الفصل الدراسي</label><select id="resourceTerm" name="termId" required><option value="" disabled ${record ? '' : 'selected'}>اختر الفصل الدراسي</option>${terms.map((term) => `<option value="${term.id}" ${selected(term.id,record?.termId)}>${esc(term.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceType">نوع المحتوى</label><select id="resourceType" name="type" required><option value="" disabled ${record ? '' : 'selected'}>اختر نوع المحتوى</option>${['audio','video','pdf','image'].map((type) => `<option value="${type}" ${selected(type,record?.type)}>${typeName(type)}</option>`).join('')}</select></div></div>
+    <div class="form-field"><label for="resourceDescription">وصف مختصر</label><textarea id="resourceDescription" name="description" maxlength="4000" placeholder="أضف شرحًا يساعد الطالب على الاستفادة من المادة">${esc(record?.description || '')}</textarea></div>
+    <div class="form-field"><label for="resourceFile">رفع ملف من الجهاز</label><input id="resourceFile" name="file" type="file" accept="audio/*,video/*,application/pdf,image/*"><span class="form-hint">${record?.mediaBlob || record?.fileUrl ? 'توجد نسخة مرفوعة. اختر ملفًا جديدًا لاستبدالها.' : 'للملفات الكبيرة، استخدم رابطًا مباشرًا أو رابط YouTube.'}</span></div>
     <div class="form-field"><label for="resourceUrl">أو رابط مباشر / YouTube</label><input id="resourceUrl" name="url" type="url" dir="ltr" value="${esc(record?.url || '')}" placeholder="https://..."><span class="form-hint">روابط YouTube تُعرض داخل مشغّل الفيديو. أضف رابطًا مباشرًا لملف صوت أو PDF أو صورة عند الحاجة.</span></div>
     <div class="form-actions"><button class="button button-primary" type="submit">${record ? 'حفظ التعديلات' : 'إضافة إلى المكتبة'}</button>${record ? '<button class="button button-outline" type="button" id="cancelEdit">إلغاء التعديل</button>' : ''}</div>
   </form></section>`;
 }
 
+function renderAdminLogin() {
+  return `${pageBanner('دخول المسؤول','سجّل الدخول لإدارة مكتبة المدرسة المشتركة.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container"><section class="admin-panel" style="max-width:520px;margin-inline:auto"><h2>دخول المسؤول</h2><p>المواد المنشورة متاحة للطلاب، وتحتاج إضافة المواد أو تعديلها إلى حساب مسؤول.</p><form class="admin-form" id="adminLoginForm"><div class="form-field"><label for="adminUsername">اسم المستخدم</label><input id="adminUsername" name="username" autocomplete="username" required maxlength="80" dir="ltr"></div><div class="form-field"><label for="adminPassword">كلمة المرور</label><input id="adminPassword" name="password" type="password" autocomplete="current-password" required dir="ltr"></div><div class="form-actions"><button class="button button-primary" type="submit">تسجيل الدخول</button></div></form></section></section>`;
+}
+
 function renderAdmin() {
+  if (storageMode === 'unavailable') {
+    return `${pageBanner('الخادم المشترك غير متاح','تعذّر الاتصال بخادم المحتوى.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container"><div class="notice-box"><span>ⓘ</span><div><strong>تعذّر الاتصال بالخادم</strong>شغّل <code>python server.py</code> من مجلد التطبيق، ثم افتح <code>http://localhost:8000</code> لإدارة المحتوى ومزامنته بين الأجهزة. لا تُحفظ التغييرات أثناء انقطاع الخادم.</div></div><button class="button button-primary" id="retryServer" type="button" style="margin-top:16px">إعادة المحاولة</button></section>`;
+  }
+  if (storageMode === 'server' && !adminUsername) return renderAdminLogin();
   const list = records.length ? records.map((record) => {
     const grade = gradeById(record.gradeId);
     const subject = subjectById(record.subjectId);
     const term = termById(record.termId);
-    return `<div class="admin-resource resource-type-${esc(record.type)}"><span class="resource-type-icon">${iconFor(record.type)}</span><div class="admin-resource-copy"><strong data-no-translate>${esc(record.title)}</strong><small>${esc(grade?.title || '')} · ${esc(subject?.title || '')} · ${esc(term?.title || '')}</small></div><div class="admin-resource-actions"><button class="button button-outline button-small" type="button" data-edit="${esc(record.id)}">تعديل</button><button class="button button-danger button-small" type="button" data-delete="${esc(record.id)}">حذف</button></div></div>`;
+    const viewUrl = mediaUrl(record);
+    return `<div class="admin-resource resource-type-${esc(record.type)}"><span class="resource-type-icon" aria-hidden="true">${iconFor(record.type)}</span><div class="admin-resource-copy"><strong data-no-translate>${esc(record.title)}</strong><small>${esc(grade?.title || '')} · ${esc(subject?.title || '')} · ${esc(term?.title || '')}</small></div><div class="admin-resource-actions">${viewUrl ? `<a class="button button-soft button-small" href="${esc(viewUrl)}" target="_blank" rel="noopener">عرض</a>` : ''}<button class="button button-outline button-small" type="button" data-edit="${esc(record.id)}">تعديل</button><button class="button button-danger button-small" type="button" data-delete="${esc(record.id)}">حذف</button></div></div>`;
   }).join('') : '<div class="admin-empty">لم تُضف أي مواد بعد. أضف أول مادة من النموذج.</div>';
-  return `${pageBanner('إدارة المحتوى','أضف مواد كل مرحلة ومادة وفصل دراسي.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container"><div class="notice-box" style="margin-bottom:18px"><span>ⓘ</span><div><strong>ملاحظة حول الحفظ</strong>هذه لوحة أولية بلا خادم: تحفظ المواد داخل قاعدة بيانات المتصفح على هذا الجهاز فقط. لا توجد حسابات مسؤولين أو مزامنة بين الأجهزة في هذه النسخة.</div></div><div class="admin-layout">${adminFormMarkup()}<section class="admin-panel"><h2>المواد المضافة <span class="resource-count">(${records.length})</span></h2><p>يمكنك تعديل المواد وحذفها من هذه القائمة.</p><div class="admin-list">${list}</div></section></div></section>`;
+  const storageNotice = storageMode === 'server'
+    ? `<div class="notice-box" style="margin-bottom:18px"><span>✓</span><div><strong>التخزين المشترك متصل</strong>تُحفظ الملفات والمواد على خادم المدرسة، وتظهر لكل المستخدمين والأجهزة.</div><button class="button button-outline button-small" id="adminLogout" type="button">تسجيل الخروج · ${esc(adminUsername)}</button></div>`
+    : `<div class="notice-box" style="margin-bottom:18px"><span>ⓘ</span><div><strong>وضع معاينة محلي</strong>أنت تفتح الملف مباشرة؛ التغييرات هنا تخص هذا المتصفح فقط. للتخزين المشترك شغّل الخادم وافتح التطبيق عبر <code>http://localhost:8000</code>.</div></div>`;
+  return `${pageBanner('إدارة المحتوى','أضف مواد كل مرحلة ومادة وفصل دراسي.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container">${storageNotice}<div class="admin-layout">${adminFormMarkup()}<section class="admin-panel"><h2>المواد المضافة <span class="resource-count">(${records.length})</span></h2><p>يمكنك تعديل المواد وحذفها من هذه القائمة.</p><div class="admin-list">${list}</div></section></div></section>`;
 }
 
 function renderNotFound() {
@@ -505,9 +582,45 @@ function resetForm() {
 }
 
 app.addEventListener('submit', async (event) => {
+  if (event.target.id === 'adminLoginForm') {
+    event.preventDefault();
+    const form = event.target;
+    if (form.dataset.submitting === 'true') return;
+    form.dataset.submitting = 'true';
+    form.setAttribute('aria-busy', 'true');
+    const submitButton = form.querySelector('[type="submit"]');
+    const originalLabel = submitButton.textContent;
+    submitButton.disabled = true;
+    submitButton.textContent = currentLocale === 'en' ? 'Signing in…' : 'جارٍ تسجيل الدخول…';
+    const formData = new FormData(event.target);
+    try {
+      const session = await apiRequest('./api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: formData.get('username'), password: formData.get('password') })
+      });
+      csrfToken = session.csrfToken;
+      adminUsername = session.username;
+      records = await apiRequest('./api/resources');
+      knownResourceIds = new Set(records.map((record) => record.id));
+      refreshObjectUrls();
+      render();
+      announceToast('تم تسجيل الدخول بنجاح.');
+    } catch (error) {
+      console.warn('Administrator sign-in failed', error);
+      announceToast(error.status === 401 ? 'بيانات تسجيل الدخول غير صحيحة.' : 'تعذّر تسجيل الدخول.');
+    } finally {
+      form.dataset.submitting = 'false';
+      form.removeAttribute('aria-busy');
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
+    }
+    return;
+  }
   if (event.target.id !== 'resourceForm') return;
   event.preventDefault();
   const form = event.target;
+  if (form.dataset.submitting === 'true') return;
   const data = new FormData(form);
   const file = form.elements.file.files[0];
   const old = records.find((record) => record.id === editId);
@@ -515,12 +628,13 @@ app.addEventListener('submit', async (event) => {
   const safeUrl = safeExternalUrl(urlInput);
   if (urlInput && !safeUrl) return announceToast('أدخل رابطًا صحيحًا يبدأ بـ https أو http.');
   if (file && safeUrl) return announceToast('اختر رفع ملف أو إضافة رابط، وليس الاثنين معًا.');
+  if (file && file.size > 100 * 1024 * 1024) return announceToast('الحد الأقصى للملف 100 ميجابايت. استخدم رابطًا مباشرًا للملفات الأكبر.');
   const type = String(data.get('type'));
   if (file && !file.type.startsWith(`${type}/`) && !(type === 'pdf' && file.type === 'application/pdf')) {
     return announceToast(`نوع الملف لا يتوافق مع اختيار ${typeName(type)}.`);
   }
   if (type === 'video' && safeUrl && !youtubeEmbed(safeUrl)) return announceToast('رابط الفيديو يجب أن يكون من YouTube أو ارفع ملف فيديو.');
-  if (!file && !safeUrl && !old?.mediaBlob) return announceToast('أضف ملفًا أو رابطًا للمادة.');
+  if (!file && !safeUrl && !old?.mediaBlob && !old?.fileUrl) return announceToast('أضف ملفًا أو رابطًا للمادة.');
   const record = {
     id: editId || (crypto.randomUUID ? crypto.randomUUID() : `r-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     title: String(data.get('title') || '').trim(),
@@ -533,9 +647,27 @@ app.addEventListener('submit', async (event) => {
     mediaBlob: file || (safeUrl ? null : old?.mediaBlob || null),
     updatedAt: new Date().toISOString()
   };
+  form.dataset.submitting = 'true';
+  form.setAttribute('aria-busy', 'true');
+  const submitButton = form.querySelector('[type="submit"]');
+  const originalLabel = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = currentLocale === 'en' ? 'Saving…' : 'جارٍ الحفظ…';
   try {
-    await writeRecord(record);
-    records = await readAllRecords();
+    if (storageMode === 'server') {
+      if (!adminUsername || !csrfToken) throw new Error('Sign in as an administrator to continue.');
+      data.set('url', safeUrl);
+      const saved = await apiRequest(editId ? `./api/resources/${encodeURIComponent(editId)}` : './api/resources', {
+        method: editId ? 'PUT' : 'POST',
+        headers: { 'X-CSRF-Token': csrfToken },
+        body: data
+      });
+      records = [saved, ...records.filter((item) => item.id !== saved.id)];
+      knownResourceIds.add(saved.id);
+    } else {
+      await writeRecord(record);
+      records = await readAllRecords();
+    }
     refreshObjectUrls();
     editId = null;
     render();
@@ -546,11 +678,39 @@ app.addEventListener('submit', async (event) => {
     }
   } catch (error) {
     console.error(error);
-    announceToast('تعذّر حفظ المادة. قد يكون الملف أكبر من مساحة التخزين المتاحة.');
+    announceToast(storageMode === 'server' ? 'تعذّر حفظ المادة على الخادم.' : 'تعذّر حفظ المادة. قد يكون الملف أكبر من مساحة التخزين المتاحة.');
+  } finally {
+    form.dataset.submitting = 'false';
+    form.removeAttribute('aria-busy');
+    submitButton.disabled = false;
+    submitButton.textContent = originalLabel;
   }
 });
 
 app.addEventListener('click', async (event) => {
+  if (event.target.closest('#retryServer')) {
+    try {
+      await connectSharedServer();
+      render();
+    } catch (error) {
+      console.warn('Could not connect to shared storage', error);
+      announceToast('تعذّر تحميل مواد الخادم.');
+    }
+    return;
+  }
+  if (event.target.closest('#adminLogout')) {
+    try {
+      await apiRequest('./api/logout', { method: 'POST', headers: { 'X-CSRF-Token': csrfToken } });
+      csrfToken = '';
+      adminUsername = '';
+      render();
+      announceToast('تم تسجيل الخروج.');
+    } catch (error) {
+      console.error(error);
+      announceToast('تعذّر تسجيل الخروج.');
+    }
+    return;
+  }
   const editButton = event.target.closest('[data-edit]');
   if (editButton) {
     editId = editButton.dataset.edit;
@@ -565,14 +725,28 @@ app.addEventListener('click', async (event) => {
     if (!record) return;
     const confirmMessage = currentLocale === 'en' ? `Delete “${record.title}”?` : `هل تريد حذف «${record.title}»؟`;
     if (!window.confirm(confirmMessage)) return;
+    deleteButton.disabled = true;
     try {
-      await removeRecord(record.id);
-      records = await readAllRecords();
+      if (storageMode === 'server') {
+        await apiRequest(`./api/resources/${encodeURIComponent(record.id)}`, {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': csrfToken }
+        });
+        records = records.filter((item) => item.id !== record.id);
+        knownResourceIds.delete(record.id);
+      } else {
+        await removeRecord(record.id);
+        records = await readAllRecords();
+      }
       refreshObjectUrls();
       if (editId === record.id) editId = null;
       render();
       announceToast('حُذفت المادة.');
-    } catch { announceToast('تعذّر حذف المادة.'); }
+    } catch (error) {
+      console.error(error);
+      announceToast(storageMode === 'server' ? 'تعذّر حذف المادة من الخادم.' : 'تعذّر حذف المادة.');
+      deleteButton.disabled = false;
+    }
     return;
   }
   if (event.target.closest('#cancelEdit')) resetForm();
@@ -586,7 +760,7 @@ document.getElementById('menuToggle').addEventListener('click', () => {
 
 document.getElementById('languageSwitch').addEventListener('click', () => {
   const nextLocale = currentLocale === 'ar' ? 'en' : 'ar';
-  setLocale(nextLocale, true);
+  setLocale(nextLocale, true, false);
   const menu = document.querySelector('.main-nav');
   menu.classList.remove('open');
   document.getElementById('menuToggle').setAttribute('aria-expanded', 'false');
@@ -612,7 +786,7 @@ document.getElementById('themeMenu').addEventListener('click', (event) => {
   }
   const localeChoice = event.target.closest('[data-locale-choice]');
   if (localeChoice) {
-    setLocale(localeChoice.dataset.localeChoice, true);
+    setLocale(localeChoice.dataset.localeChoice, true, false);
     closeThemeMenu(true);
   }
 });
@@ -623,7 +797,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !document.getElementById('themeMenu').hidden) closeThemeMenu(true);
 });
 window.addEventListener('languagechange', () => {
-  if (document.documentElement.dataset.localeChoice === 'system') setLocale('system');
+  if (document.documentElement.dataset.localeChoice === 'system') setLocale('system', false, false);
 });
 const handleSystemThemeChange = () => {
   if (document.documentElement.dataset.themeChoice === 'system') setTheme('system');
@@ -632,8 +806,14 @@ if (systemTheme.addEventListener) systemTheme.addEventListener('change', handleS
 else systemTheme.addListener(handleSystemThemeChange);
 
 window.addEventListener('hashchange', render);
-window.addEventListener('online', () => { document.getElementById('offlineBanner').hidden = true; });
+window.addEventListener('online', () => {
+  document.getElementById('offlineBanner').hidden = true;
+  syncSharedResources();
+});
 window.addEventListener('offline', () => { document.getElementById('offlineBanner').hidden = false; });
+window.addEventListener('focus', syncSharedResources);
+document.addEventListener('visibilitychange', syncSharedResources);
+window.setInterval(syncSharedResources, 60_000);
 if (!navigator.onLine) document.getElementById('offlineBanner').hidden = false;
 
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -661,12 +841,24 @@ document.getElementById('installModal').addEventListener('click', (event) => { i
 
 async function start() {
   monitorLogoImages(document);
-  try {
-    database = await openDatabase();
-    records = await readAllRecords();
-    refreshObjectUrls();
-  } catch (error) {
-    console.warn('تعذّر تحميل قاعدة المحتوى', error);
+  if (location.protocol === 'file:') {
+    try {
+      database = await openDatabase();
+      records = await readAllRecords();
+      storageMode = 'local';
+      refreshObjectUrls();
+    } catch (error) {
+      storageMode = 'unavailable';
+      console.warn('Could not open local preview storage', error);
+    }
+  } else {
+    try {
+      await connectSharedServer();
+    } catch (error) {
+      storageMode = 'unavailable';
+      records = [];
+      console.warn('Could not connect to shared content storage', error);
+    }
   }
   render();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
