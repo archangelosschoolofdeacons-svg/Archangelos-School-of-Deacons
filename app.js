@@ -419,7 +419,7 @@ function renderHome() {
           <div class="hero-actions"><a class="button button-primary" href="#/grades">اكتشف المراحل <span aria-hidden="true">←</span></a><a class="button button-outline" href="#/about">تعرّف على المدرسة</a></div>
           <div class="hero-meta"><span><b>✓</b> لجميع الأعمار والمراحل</span><span><b>✓</b> مواد سهلة الوصول</span></div>
         </div>
-        <div class="hero-art" aria-label="شعار مدرسة أرشى أنجيلوس للشمامسة"><span class="art-stamp stamp-one" aria-hidden="true">✦</span><span class="art-stamp stamp-two" aria-hidden="true">♫</span><div class="logo-frame"><img src="./logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div></div>
+        <div class="hero-art" aria-label="شعار مدرسة أرشى أنجيلوس للشمامسة"><span class="art-stamp stamp-one" aria-hidden="true">✦</span><span class="art-stamp stamp-two" aria-hidden="true">♫</span><div class="logo-frame"><img src="./assets/logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div></div>
       </div>
     </section>
     <div class="quick-strip" aria-label="محتويات المكتبة">
@@ -491,7 +491,7 @@ function renderAnnouncements() {
 }
 
 function renderAbout() {
-  return `${pageBanner('عن المدرسة','Archangelos School of Deacons · مدرسة أرشى أنجيلوس للشمامسة', [{ label: 'الرئيسية', href: '/' },{ label: 'عن المدرسة' }])}<section class="section container"><div class="about-grid"><div class="about-mark"><img src="./logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div><div class="about-copy"><span class="eyebrow">نتعلّم بمحبة</span><h2>نتعلّم ونرتّل ونخدم</h2><p>مدرسة أرشى أنجيلوس للشمامسة (Archangelos School of Deacons) مساحة تعليمية تساعد الطلاب على التدرّج في تعلّم الألحان واللغة القبطية والطقس الكنسي، من رياض الأطفال حتى خورس الشمامسة.</p><p>صُممت المكتبة لتكون واضحة على الهاتف والكمبيوتر، وتجمع مواد كل مرحلة في مكان واحد، مع إمكان تثبيت التطبيق والرجوع إلى المواد المحفوظة دون اتصال.</p><div class="about-values"><div class="about-value"><span>♫</span> تعلّم الألحان بالتدرّج والاستماع</div><div class="about-value"><span>ⲙ</span> التعرّف إلى اللغة القبطية</div><div class="about-value"><span>✧</span> فهم الطقس والخدمة الكنسية</div></div></div></div></section>`;
+  return `${pageBanner('عن المدرسة','Archangelos School of Deacons · مدرسة أرشى أنجيلوس للشمامسة', [{ label: 'الرئيسية', href: '/' },{ label: 'عن المدرسة' }])}<section class="section container"><div class="about-grid"><div class="about-mark"><img src="./assets/logo.png" data-school-logo alt="شعار مدرسة أرشى أنجيلوس للشمامسة"></div><div class="about-copy"><span class="eyebrow">نتعلّم بمحبة</span><h2>نتعلّم ونرتّل ونخدم</h2><p>مدرسة أرشى أنجيلوس للشمامسة (Archangelos School of Deacons) مساحة تعليمية تساعد الطلاب على التدرّج في تعلّم الألحان واللغة القبطية والطقس الكنسي، من رياض الأطفال حتى خورس الشمامسة.</p><p>صُممت المكتبة لتكون واضحة على الهاتف والكمبيوتر، وتجمع مواد كل مرحلة في مكان واحد، مع إمكان تثبيت التطبيق والرجوع إلى المواد المحفوظة دون اتصال.</p><div class="about-values"><div class="about-value"><span>♫</span> تعلّم الألحان بالتدرّج والاستماع</div><div class="about-value"><span>ⲙ</span> التعرّف إلى اللغة القبطية</div><div class="about-value"><span>✧</span> فهم الطقس والخدمة الكنسية</div></div></div></div></section>`;
 }
 
 function monitorLogoImages(root = document) {

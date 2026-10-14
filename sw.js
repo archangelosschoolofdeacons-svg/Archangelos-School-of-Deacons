@@ -1,7 +1,7 @@
-const CACHE_NAME = 'archangelos-school-v11';
+const CACHE_NAME = 'archangelos-school-v12';
 const APP_SHELL = [
   './', './index.html', './styles.css', './localization.js', './app.js', './manifest.json', './manifest-en.json', './manifest-ar.json',
-  './logo.png', './assets/logo.png', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/icon-maskable-512.png',
+  './assets/logo.png', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/icon-maskable-512.png',
   './assets/icons/apple-touch-icon.png', './assets/icons/favicon-64.png'
 ];
 

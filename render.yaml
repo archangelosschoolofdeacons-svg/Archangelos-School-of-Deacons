@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: archangelos-school-of-deacons
+    runtime: python
+    plan: starter
+    buildCommand: python --version
+    startCommand: python server.py
+    healthCheckPath: /
+    envVars:
+      - key: ARCHANGELOS_HOST
+        value: 0.0.0.0
+      - key: ARCHANGELOS_PORT
+        value: 10000
+      - key: ARCHANGELOS_DATA_DIR
+        value: /var/data
+      - key: ARCHANGELOS_SECURE_COOKIE
+        value: "1"
+      - key: ARCHANGELOS_ADMIN_USERNAME
+        value: admin
+      - key: ARCHANGELOS_ADMIN_PASSWORD
+        sync: false
+    disk:
+      name: archangelos-persistent-data
+      mountPath: /var/data
+      sizeGB: 1
