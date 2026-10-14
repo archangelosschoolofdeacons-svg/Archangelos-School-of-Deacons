@@ -1,4 +1,4 @@
-const CACHE_NAME = 'archangelos-school-v7';
+const CACHE_NAME = 'archangelos-school-v8';
 const APP_SHELL = [
   './', './index.html', './styles.css', './localization.js', './app.js', './manifest.json', './manifest-en.json', './manifest-ar.json',
   './assets/logo.png', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/icon-maskable-512.png',
