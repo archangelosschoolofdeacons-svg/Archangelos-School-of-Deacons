@@ -189,9 +189,6 @@ img { display: block; max-width: 100%; }
 .form-field textarea { min-height: 84px; resize: vertical; }
 .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: #a95c64; box-shadow: 0 0 0 3px rgba(113,13,25,.08); }
 .form-hint { color: #8a8079; font-size: .74rem; }
-.upload-progress { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; }
-.upload-progress[hidden] { display: none; }
-.upload-progress progress { display: block; width: 100%; height: 10px; accent-color: var(--gold); }
 .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
 .admin-list { display: grid; gap: 10px; max-height: 690px; overflow: auto; }
 .admin-resource { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; }
@@ -204,6 +201,13 @@ img { display: block; max-width: 100%; }
 .admin-form button:focus-visible, .admin-resource-actions a:focus-visible, .admin-resource-actions button:focus-visible, .notice-box button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .admin-empty { padding: 28px 16px; color: var(--muted); background: #faf8f5; border-radius: 13px; text-align: center; font-size: .86rem; }
 .form-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 3px; }
+.upload-preview { display: grid; gap: 8px; padding: 11px; background: #faf8f5; border: 1px solid var(--line); border-radius: 12px; }
+.upload-preview-name { margin: 0; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.upload-preview img, .upload-preview video { display: block; width: 100%; max-height: 230px; object-fit: contain; border-radius: 8px; background: #171414; }
+.upload-preview audio { display: block; width: 100%; }
+.upload-preview a { width: fit-content; }
+.admin-form progress { width: 100%; height: 12px; accent-color: var(--wine); }
+.upload-status { margin: 0; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
 .site-footer { color: #f8eeeb; background: #310a0e; }
 .footer-main { width: min(1180px,calc(100% - 48px)); margin: auto; display: grid; grid-template-columns: 1.2fr .8fr 1fr; align-items: center; gap: 25px; padding: 31px 0; }
 .footer-brand { display: flex; align-items: center; gap: 12px; }

@@ -37,8 +37,9 @@ let toastTimer;
 let currentLocale = window.__archangelosLocale || 'en';
 let storageMode = 'unavailable';
 let csrfToken = '';
-let authToken = '';
 let adminUsername = '';
+let uploadConfig = { maxUploadBytes: 5 * 1024 * 1024 * 1024, partBytes: 32 * 1024 * 1024 };
+let uploadPreviewUrl = '';
 let knownResourceIds = new Set();
 const objectUrls = new Map();
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
@@ -281,108 +282,20 @@ function readAllRecords() {
   });
 }
 
-const API_BASE_URL = 'https://archangelos-deacons-api-2026.archangelosschoolofdeacons.workers.dev';
-const AUTH_STORAGE_KEY = 'archangelos-admin-session';
-const UPLOAD_PART_BYTES = 8 * 1024 * 1024;
-
 function apiEndpoint(path) {
-  const route = String(path).replace(/^\.\/api\//, '').replace(/^\/?api\//, '').replace(/^\/+/, '');
-  return new URL(`/api/${route}`, API_BASE_URL).toString();
-}
-
-function readStoredAuth() {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(AUTH_STORAGE_KEY) || '{}');
-    authToken = typeof saved.token === 'string' ? saved.token : '';
-    csrfToken = typeof saved.csrfToken === 'string' ? saved.csrfToken : '';
-  } catch (_) {
-    authToken = '';
-    csrfToken = '';
-  }
-}
-
-function saveAuth(token, csrf) {
-  authToken = token || '';
-  csrfToken = csrf || '';
-  try {
-    if (authToken && csrfToken) sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: authToken, csrfToken }));
-    else sessionStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch (_) {}
-}
-
-function clearAuth() {
-  saveAuth('', '');
-  adminUsername = '';
-}
-
-function normalizeResource(row = {}) {
-  const type = row.type || row.kind || 'pdf';
-  let mediaKeyFromUrl = '';
-  if (typeof row.url === 'string') {
-    try {
-      const candidate = new URL(row.url, API_BASE_URL);
-      const apiOrigin = new URL(API_BASE_URL).origin;
-      if (candidate.origin === apiOrigin && candidate.pathname.startsWith('/api/media/')) {
-        const decoded = decodeURIComponent(candidate.pathname.slice('/api/media/'.length));
-        if (/^resources\/[a-f0-9-]{36}\.[a-z0-9]{1,10}$/i.test(decoded)) mediaKeyFromUrl = decoded;
-      }
-    } catch (_) {}
-  }
-  let mediaKey = row.mediaKey || row.media_key || '';
-  if (!mediaKey && typeof row.url === 'string' && /^resources\/[a-f0-9-]{36}\.[a-z0-9]{1,10}$/i.test(row.url)) mediaKey = row.url;
-  if (!mediaKey) mediaKey = mediaKeyFromUrl;
-  if (!mediaKey && typeof row.file_name === 'string' && /^resources\/[a-f0-9-]{36}\.[a-z0-9]{1,10}$/i.test(row.file_name)) {
-    mediaKey = row.file_name;
-  }
-  const isMediaEndpoint = Boolean(mediaKey && mediaKey === mediaKeyFromUrl);
-  return {
-    id: String(row.id || ''),
-    title: String(row.title || ''),
-    description: String(row.description || ''),
-    gradeId: String(row.gradeId ?? row.grade_id ?? ''),
-    subjectId: String(row.subjectId ?? row.subject_id ?? ''),
-    termId: String(row.termId ?? row.term_id ?? ''),
-    type: ['audio', 'video', 'pdf', 'image'].includes(type) ? type : 'pdf',
-    url: isMediaEndpoint ? '' : (row.url || ''),
-    mediaKey,
-    fileName: String(row.originalFileName || row.original_file_name || row.fileName || ''),
-    updatedAt: String(row.updatedAt || row.updated_at || '')
-  };
+  return new URL(path, document.baseURI).toString();
 }
 
 async function apiRequest(path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  const body = options.body;
-  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-  const isBlob = typeof Blob !== 'undefined' && body instanceof Blob;
-  let requestBody = body;
-  if (body && typeof body === 'object' && !isFormData && !isBlob && !(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body) && !(typeof ReadableStream !== 'undefined' && body instanceof ReadableStream)) {
-    requestBody = JSON.stringify(body);
-    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  }
-  headers.set('Accept', 'application/json');
-  if (options.authenticated && authToken) headers.set('Authorization', `Bearer ${authToken}`);
-  if (options.csrf && csrfToken) headers.set('X-CSRF-Token', csrfToken);
-  let response;
-  try {
-    response = await fetch(apiEndpoint(path), {
-      method: options.method || 'GET',
-      headers,
-      body: requestBody,
-      credentials: 'omit',
-      cache: 'no-store'
-    });
-  } catch (_) {
-    throw new Error(currentLocale === 'ar'
-      ? 'تعذّر الاتصال بخدمة المحتوى. تحقّق من الإنترنت وحاول مجددًا.'
-      : 'Could not reach the content service. Check your connection and try again.');
-  }
+  const response = await fetch(apiEndpoint(path), {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...options
+  });
   const contentType = response.headers.get('Content-Type') || '';
   const result = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {
-    if (response.status === 401 && options.authenticated) clearAuth();
-    const message = currentLocale === 'ar' ? (result?.errorAr || result?.error) : (result?.error || result?.errorAr);
-    const error = new Error(message || (currentLocale === 'ar' ? `تعذّر إكمال الطلب (${response.status}).` : `The request failed (${response.status}).`));
+    const error = new Error(result?.error || `Server request failed (${response.status}).`);
     error.status = response.status;
     throw error;
   }
@@ -390,21 +303,34 @@ async function apiRequest(path, options = {}) {
 }
 
 async function connectSharedServer() {
-  readStoredAuth();
-  const session = await apiRequest('session', { authenticated: Boolean(authToken) });
-  if (session.authenticated) saveAuth(authToken, session.csrfToken || csrfToken);
-  else if (!session.authenticated) clearAuth();
+  const [resourceResult, sessionResult, configResult] = await Promise.allSettled([
+    apiRequest('./api/resources'),
+    apiRequest('./api/session'),
+    apiRequest('./api/config')
+  ]);
+  if (resourceResult.status !== 'fulfilled') throw resourceResult.reason;
   storageMode = 'server';
+  if (configResult.status === 'fulfilled') uploadConfig = configResult.value;
+  else console.warn('Storage status is unavailable; shared materials remain viewable.', configResult.reason);
+  const session = sessionResult.status === 'fulfilled' ? sessionResult.value : { authenticated: false };
+  if (sessionResult.status !== 'fulfilled') console.warn('Administrator sign-in is unavailable while offline.', sessionResult.reason);
+  csrfToken = session.csrfToken || '';
   adminUsername = session.authenticated ? session.username : '';
-  records = (await apiRequest('resources')).map(normalizeResource);
+  records = resourceResult.value;
   knownResourceIds = new Set(records.map((record) => record.id));
   refreshObjectUrls();
+}
+
+async function refreshUploadConfig() {
+  try { uploadConfig = await apiRequest('./api/config'); } catch (error) {
+    console.warn('Could not refresh storage usage.', error);
+  }
 }
 
 async function syncSharedResources() {
   if (storageMode !== 'server' || document.visibilityState === 'hidden') return;
   try {
-    const latest = (await apiRequest('resources')).map(normalizeResource);
+    const latest = await apiRequest('./api/resources');
     const newRecords = latest.filter((record) => !knownResourceIds.has(record.id));
     const changed = latest.length !== records.length || latest.some((record) => {
       const previous = records.find((item) => item.id === record.id);
@@ -454,10 +380,7 @@ function refreshObjectUrls() {
 
 function mediaUrl(record) {
   if (record.mediaBlob instanceof Blob) return objectUrls.get(record.id) || '';
-  if (record.mediaKey && /^resources\/[a-f0-9-]{36}\.[a-z0-9]{1,10}$/i.test(record.mediaKey)) {
-    return `${API_BASE_URL}/api/media/${encodeURIComponent(record.mediaKey)}`;
-  }
-  if (record.fileUrl) return /^\.\/uploads\/[a-f0-9]{32}\.[a-z0-9]{1,8}$/i.test(record.fileUrl) ? record.fileUrl : '';
+  if (record.fileUrl) return /^\.?\/media\/[A-Za-z0-9_-]{1,100}(?:\?v=[A-Za-z0-9TZ:.+%-]+)?$/.test(record.fileUrl) ? record.fileUrl : '';
   return safeExternalUrl(record.url);
 }
 
@@ -567,7 +490,11 @@ function renderResource(record) {
   if (src && record.type === 'pdf') player = `<div class="media-frame pdf-frame"><iframe src="${esc(src)}#toolbar=1" title="${esc(record.title)}" loading="lazy"></iframe></div>`;
   if (src && record.type === 'image') player = `<div class="media-frame"><img src="${esc(src)}" alt="${esc(record.title)}" loading="lazy"></div>`;
   const downloadable = src || external;
-  return `<article class="resource-card resource-type-${esc(record.type)}"><div class="resource-head"><span class="resource-type-icon" aria-hidden="true">${iconFor(record.type)}</span><div class="resource-head-copy"><h3 data-no-translate>${esc(record.title)}</h3><p>${typeName(record.type)}</p></div></div>${record.description ? `<p class="resource-description" data-no-translate>${esc(record.description)}</p>` : ''}${player}${downloadable ? `<div class="resource-actions"><a class="button button-outline button-small" href="${esc(downloadable)}" ${record.mediaBlob ? 'download' : 'target="_blank" rel="noopener"'}>فتح / تنزيل المادة <span aria-hidden="true">↗</span></a></div>` : ''}</article>`;
+  const downloadHref = record.fileUrl && src ? `${src}${src.includes('?') ? '&' : '?'}download=1` : downloadable;
+  const downloadAttributes = record.mediaBlob instanceof Blob || (record.fileUrl && src)
+    ? 'download'
+    : 'target="_blank" rel="noopener"';
+  return `<article class="resource-card resource-type-${esc(record.type)}"><div class="resource-head"><span class="resource-type-icon" aria-hidden="true">${iconFor(record.type)}</span><div class="resource-head-copy"><h3 data-no-translate>${esc(record.title)}</h3><p>${typeName(record.type)}</p></div></div>${record.description ? `<p class="resource-description" data-no-translate>${esc(record.description)}</p>` : ''}${player}${downloadable ? `<div class="resource-actions"><a class="button button-outline button-small" href="${esc(downloadHref)}" ${downloadAttributes}>فتح / تنزيل المادة <span aria-hidden="true">↗</span></a></div>` : ''}</article>`;
 }
 
 function renderTerm(grade, subject, term) {
@@ -607,17 +534,159 @@ function monitorLogoImages(root = document) {
   });
 }
 
+const fileExtensions = {
+  audio: '.mp3,.wav,.m4a,.aac,.flac,.ogg,.oga,.opus',
+  video: '.mp4,.webm,.ogv,.mov,.m4v,.mkv',
+  image: '.jpg,.jpeg,.png,.gif,.webp,.avif',
+  pdf: '.pdf'
+};
+
+function clearUploadPreview() {
+  if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
+  uploadPreviewUrl = '';
+}
+
+function formatFileSize(size) {
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
+  if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+  return `${(size / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function renderFilePreview(file) {
+  const preview = document.getElementById('filePreview');
+  if (!preview) return;
+  clearUploadPreview();
+  preview.replaceChildren();
+  if (!file) {
+    preview.hidden = true;
+    return;
+  }
+  uploadPreviewUrl = URL.createObjectURL(file);
+  const label = document.createElement('p');
+  label.className = 'upload-preview-name';
+  label.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+  preview.append(label);
+  const type = document.getElementById('resourceType')?.value;
+  let player;
+  if (type === 'image') {
+    player = document.createElement('img');
+    player.alt = file.name;
+  } else if (type === 'audio') {
+    player = document.createElement('audio');
+    player.controls = true;
+  } else if (type === 'video') {
+    player = document.createElement('video');
+    player.controls = true;
+    player.preload = 'metadata';
+  } else {
+    player = document.createElement('a');
+    player.textContent = currentLocale === 'en' ? 'Preview PDF' : 'معاينة ملف PDF';
+    player.target = '_blank';
+    player.rel = 'noopener';
+  }
+  if (player.tagName === 'A') player.href = uploadPreviewUrl;
+  else player.src = uploadPreviewUrl;
+  preview.append(player);
+  preview.hidden = false;
+}
+
+function updateUploadProgress(percent, message) {
+  const progress = document.getElementById('uploadProgress');
+  const status = document.getElementById('uploadStatus');
+  if (!progress || !status) return;
+  progress.value = Math.max(0, Math.min(100, percent));
+  progress.hidden = false;
+  status.hidden = false;
+  status.textContent = message;
+}
+
+function uploadPart(uploadId, partNumber, blob, completedBytes, totalBytes) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', apiEndpoint(`./api/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`));
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const current = completedBytes + Math.min(event.loaded, blob.size);
+        updateUploadProgress((current / totalBytes) * 100, `${currentLocale === 'en' ? 'Uploading' : 'جارٍ الرفع'} ${formatFileSize(current)} / ${formatFileSize(totalBytes)}`);
+      }
+    };
+    xhr.onerror = () => reject(new Error('The connection interrupted this upload part.'));
+    xhr.onabort = () => reject(new Error('Upload cancelled.'));
+    xhr.onload = () => {
+      let result = {};
+      try { result = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = new Error(result.error || `Upload failed (${xhr.status}).`);
+        error.status = xhr.status;
+        error.code = result.code;
+        reject(error);
+        return;
+      }
+      resolve(result);
+    };
+    xhr.send(blob);
+  });
+}
+
+async function uploadResourceFile(file, resource, isNew) {
+  const start = await apiRequest('./api/uploads/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify({ resource, isNew, fileName: file.name, contentType: file.type, size: file.size })
+  });
+  const parts = [];
+  let completedBytes = 0;
+  const partBytes = start.partBytes || uploadConfig.partBytes;
+  try {
+    for (let offset = 0, partNumber = 1; offset < file.size; offset += partBytes, partNumber += 1) {
+      const end = Math.min(file.size, offset + partBytes);
+      const chunk = file.slice(offset, end);
+      let uploaded;
+      let lastError;
+      for (let attempt = 0; attempt < 3 && !uploaded; attempt += 1) {
+        try {
+          uploaded = await uploadPart(start.uploadId, partNumber, chunk, completedBytes, file.size);
+        } catch (error) {
+          lastError = error;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+      }
+      if (!uploaded) throw lastError || new Error('The storage provider rejected this upload part.');
+      parts.push(uploaded);
+      completedBytes = end;
+      updateUploadProgress((completedBytes / file.size) * 100, `${currentLocale === 'en' ? 'Uploaded' : 'اكتمل رفع'} ${formatFileSize(completedBytes)} / ${formatFileSize(file.size)}`);
+    }
+    updateUploadProgress(100, currentLocale === 'en' ? 'Saving the material record…' : 'جارٍ حفظ بيانات المادة…');
+    return await apiRequest(`./api/uploads/${encodeURIComponent(start.uploadId)}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+      body: JSON.stringify({ parts })
+    });
+  } catch (error) {
+    try {
+      await apiRequest(`./api/uploads/${encodeURIComponent(start.uploadId)}`, {
+        method: 'DELETE', headers: { 'X-CSRF-Token': csrfToken }
+      });
+    } catch (_) {}
+    throw error;
+  }
+}
+
 function adminFormMarkup() {
   const selected = (value, current) => value === current ? 'selected' : '';
   const record = records.find((item) => item.id === editId);
+  const type = record?.type || 'audio';
+  const uploadLimit = uploadConfig.maxUploadBytes ? formatFileSize(uploadConfig.maxUploadBytes) : '5 GB';
   return `<section class="admin-panel"><h2>${record ? 'تعديل المادة' : 'إضافة مادة تعليمية'}</h2><p>أضف ملفًا من جهازك أو رابط فيديو. تحفظ المواد على الخادم المشترك.</p><form class="admin-form" id="resourceForm">
     <div class="form-field"><label for="resourceTitle">عنوان المادة</label><input id="resourceTitle" name="title" required maxlength="100" value="${esc(record?.title || '')}" placeholder="مثال: لحن تين أوأوشت"></div>
     <div class="form-grid"><div class="form-field"><label for="resourceGrade">المرحلة</label><select id="resourceGrade" name="gradeId" required><option value="" disabled ${record ? '' : 'selected'}>اختر المرحلة</option>${grades.map((grade) => `<option value="${grade.id}" ${selected(grade.id,record?.gradeId)}>${esc(grade.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceSubject">المادة</label><select id="resourceSubject" name="subjectId" required><option value="" disabled ${record ? '' : 'selected'}>اختر المادة</option>${subjects.map((subject) => `<option value="${subject.id}" ${selected(subject.id,record?.subjectId)}>${esc(subject.title)}</option>`).join('')}</select></div></div>
     <div class="form-grid"><div class="form-field"><label for="resourceTerm">الفصل الدراسي</label><select id="resourceTerm" name="termId" required><option value="" disabled ${record ? '' : 'selected'}>اختر الفصل الدراسي</option>${terms.map((term) => `<option value="${term.id}" ${selected(term.id,record?.termId)}>${esc(term.title)}</option>`).join('')}</select></div><div class="form-field"><label for="resourceType">نوع المحتوى</label><select id="resourceType" name="type" required><option value="" disabled ${record ? '' : 'selected'}>اختر نوع المحتوى</option>${['audio','video','pdf','image'].map((type) => `<option value="${type}" ${selected(type,record?.type)}>${typeName(type)}</option>`).join('')}</select></div></div>
     <div class="form-field"><label for="resourceDescription">وصف مختصر</label><textarea id="resourceDescription" name="description" maxlength="4000" placeholder="أضف شرحًا يساعد الطالب على الاستفادة من المادة">${esc(record?.description || '')}</textarea></div>
-    <div class="form-field"><label for="resourceFile">رفع ملف من الجهاز</label><input id="resourceFile" name="file" type="file" accept="audio/*,video/*,application/pdf,image/*"><span class="form-hint">${record?.mediaBlob || record?.fileUrl || record?.mediaKey ? 'توجد نسخة مرفوعة. اختر ملفًا جديدًا لاستبدالها.' : 'يُرفع الملف على أجزاء؛ الحد النهائي يعتمد على حدود حساب Cloudflare.'}</span></div>
-    <div class="upload-progress" id="uploadProgress" hidden aria-live="polite"><progress id="uploadProgressBar" max="100" value="0"></progress><span id="uploadProgressLabel">0% · 0 B / 0 B</span></div>
-    <div class="form-field"><label for="resourceUrl">أو رابط مباشر / YouTube</label><input id="resourceUrl" name="url" type="url" dir="ltr" value="${esc(record?.mediaKey ? '' : record?.url || '')}" placeholder="https://..."><span class="form-hint">روابط YouTube تُعرض داخل مشغّل الفيديو. أضف رابطًا مباشرًا لملف صوت أو PDF أو صورة عند الحاجة.</span></div>
+    <div class="form-field"><label for="resourceFile">رفع ملف من الجهاز</label><input id="resourceFile" name="file" type="file" accept="${fileExtensions[type]}"><span class="form-hint">${record?.mediaBlob || record?.fileUrl ? 'توجد نسخة مرفوعة. اختر ملفًا جديدًا لاستبدالها.' : currentLocale === 'en' ? `Upload a file up to ${uploadLimit}.` : `ارفع ملفًا يصل حجمه إلى ${uploadLimit}.`}</span><div class="upload-preview" id="filePreview" hidden></div><progress id="uploadProgress" max="100" value="0" aria-label="تقدّم رفع الملف" hidden></progress><p class="upload-status" id="uploadStatus" role="status" aria-live="polite" hidden></p></div>
+    <div class="form-field"><label for="resourceUrl">أو رابط مباشر / YouTube</label><input id="resourceUrl" name="url" type="url" dir="ltr" value="${esc(record?.url || '')}" placeholder="https://..."><span class="form-hint">روابط YouTube تُعرض داخل مشغّل الفيديو. أضف رابطًا مباشرًا لملف صوت أو PDF أو صورة عند الحاجة.</span></div>
     <div class="form-actions"><button class="button button-primary" type="submit">${record ? 'حفظ التعديلات' : 'إضافة إلى المكتبة'}</button>${record ? '<button class="button button-outline" type="button" id="cancelEdit">إلغاء التعديل</button>' : ''}</div>
   </form></section>`;
 }
@@ -628,7 +697,7 @@ function renderAdminLogin() {
 
 function renderAdmin() {
   if (storageMode === 'unavailable') {
-    return `${pageBanner('الخادم المشترك غير متاح','تعذّر الاتصال بخادم المحتوى.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container"><div class="notice-box"><span>ⓘ</span><div><strong>تعذّر الاتصال بالخادم</strong>تحقّق من اتصال الإنترنت ومن إتاحة خدمة المحتوى، ثم أعد المحاولة. لا تُحفظ التغييرات عند تعذّر الاتصال.</div></div><button class="button button-primary" id="retryServer" type="button" style="margin-top:16px">إعادة المحاولة</button></section>`;
+    return `${pageBanner('الخادم المشترك غير متاح','تعذّر الاتصال بخادم المحتوى.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container"><div class="notice-box"><span>ⓘ</span><div><strong>تعذّر الاتصال بالخادم</strong>تحقّق من اتصال الموقع بواجهة Cloudflare Workers وتهيئة قاعدة البيانات والتخزين، ثم أعد المحاولة. لا تُحفظ التغييرات أثناء انقطاع الخادم.</div></div><button class="button button-primary" id="retryServer" type="button" style="margin-top:16px">إعادة المحاولة</button></section>`;
   }
   if (storageMode === 'server' && !adminUsername) return renderAdminLogin();
   const list = records.length ? records.map((record) => {
@@ -638,9 +707,10 @@ function renderAdmin() {
     const viewUrl = mediaUrl(record);
     return `<div class="admin-resource resource-type-${esc(record.type)}"><span class="resource-type-icon" aria-hidden="true">${iconFor(record.type)}</span><div class="admin-resource-copy"><strong data-no-translate>${esc(record.title)}</strong><small>${esc(grade?.title || '')} · ${esc(subject?.title || '')} · ${esc(term?.title || '')}</small></div><div class="admin-resource-actions">${viewUrl ? `<a class="button button-soft button-small" href="${esc(viewUrl)}" target="_blank" rel="noopener">عرض</a>` : ''}<button class="button button-outline button-small" type="button" data-edit="${esc(record.id)}">تعديل</button><button class="button button-danger button-small" type="button" data-delete="${esc(record.id)}">حذف</button></div></div>`;
   }).join('') : '<div class="admin-empty">لم تُضف أي مواد بعد. أضف أول مادة من النموذج.</div>';
+  const storageUsage = `${formatFileSize(uploadConfig.storedBytes || 0)} / ${formatFileSize(uploadConfig.maxStorageBytes || 8_000_000_000)}`;
   const storageNotice = storageMode === 'server'
-    ? `<div class="notice-box" style="margin-bottom:18px"><span>✓</span><div><strong>التخزين المشترك متصل</strong>تُحفظ الملفات والمواد على خادم المدرسة، وتظهر لكل المستخدمين والأجهزة.</div><button class="button button-outline button-small" id="adminLogout" type="button">تسجيل الخروج · ${esc(adminUsername)}</button></div>`
-    : `<div class="notice-box" style="margin-bottom:18px"><span>ⓘ</span><div><strong>وضع معاينة محلي</strong>أنت تفتح الملف مباشرة؛ التغييرات هنا تخص هذا المتصفح فقط. للتخزين المشترك شغّل الخادم وافتح التطبيق عبر <code>http://localhost:8000</code>.</div></div>`;
+    ? `<div class="notice-box" style="margin-bottom:18px"><span>✓</span><div><strong>التخزين المشترك متصل</strong>تُحفظ الملفات والمواد في التخزين السحابي وتظهر لكل المستخدمين والأجهزة.<small>${currentLocale === 'en' ? 'Storage used:' : 'المساحة المستخدمة:'} ${esc(storageUsage)}</small></div><button class="button button-outline button-small" id="adminLogout" type="button">تسجيل الخروج · ${esc(adminUsername)}</button></div>`
+    : `<div class="notice-box" style="margin-bottom:18px"><span>ⓘ</span><div><strong>وضع معاينة محلي</strong>أنت تفتح الملف مباشرة؛ التغييرات هنا تخص هذا المتصفح فقط. للتخزين السحابي شغّل <code>npm run dev</code> بعد إعداد Wrangler.</div></div>`;
   return `${pageBanner('إدارة المحتوى','أضف مواد كل مرحلة ومادة وفصل دراسي.',[{ label: 'الرئيسية', href: '/' },{ label: 'إدارة المحتوى' }])}<section class="section container">${storageNotice}<div class="admin-layout">${adminFormMarkup()}<section class="admin-panel"><h2>المواد المضافة <span class="resource-count">(${records.length})</span></h2><p>يمكنك تعديل المواد وحذفها من هذه القائمة.</p><div class="admin-list">${list}</div></section></div></section>`;
 }
 
@@ -650,6 +720,7 @@ function renderNotFound() {
 
 function render() {
   const route = currentRoute().split('/').filter(Boolean);
+  clearUploadPreview();
   if (route.length === 0) app.innerHTML = renderHome();
   else if (route[0] === 'grades') app.innerHTML = renderGrades();
   else if (route[0] === 'grade' && route.length === 2) app.innerHTML = renderGrade(gradeById(route[1]));
@@ -681,78 +752,6 @@ function resetForm() {
   render();
 }
 
-function formatUploadBytes(bytes) {
-  const value = Number(bytes) || 0;
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let unit = 0;
-  let amount = value;
-  while (amount >= 1024 && unit < units.length - 1) {
-    amount /= 1024;
-    unit += 1;
-  }
-  return `${new Intl.NumberFormat(currentLocale, { maximumFractionDigits: unit ? 1 : 0 }).format(amount)} ${units[unit]}`;
-}
-
-function updateUploadProgress(progress, uploaded, total) {
-  if (!progress) return;
-  const percentage = total ? Math.min(100, Math.floor(uploaded / total * 100)) : 0;
-  progress.hidden = false;
-  const bar = progress.querySelector('#uploadProgressBar');
-  const label = progress.querySelector('#uploadProgressLabel');
-  if (bar) bar.value = percentage;
-  if (label) label.textContent = currentLocale === 'ar'
-    ? `${percentage}% · ${formatUploadBytes(uploaded)} / ${formatUploadBytes(total)}`
-    : `${percentage}% · ${formatUploadBytes(uploaded)} / ${formatUploadBytes(total)}`;
-}
-
-async function uploadResourceFile(file, metadata, progress) {
-  if (!file.size) {
-    throw new Error(currentLocale === 'ar' ? 'لا يمكن رفع ملف فارغ.' : 'An empty file cannot be uploaded.');
-  }
-  const extension = file.name.split('.').pop().toLowerCase();
-  const contentType = file.type || 'application/octet-stream';
-  const upload = await apiRequest('uploads/init', {
-    method: 'POST', authenticated: true, csrf: true,
-    body: {
-      ...metadata,
-      fileName: file.name,
-      extension,
-      expectedSize: file.size,
-      contentType
-    }
-  });
-  const partSize = Number(upload.partSize) || UPLOAD_PART_BYTES;
-  const expectedParts = Number(upload.partCount) || Math.ceil(file.size / partSize);
-  let uploadedBytes = 0;
-  updateUploadProgress(progress, 0, file.size);
-  for (let index = 0; index < expectedParts; index += 1) {
-    const start = index * partSize;
-    const chunk = file.slice(start, Math.min(file.size, start + partSize));
-    let attempt = 0;
-    while (true) {
-      try {
-        await apiRequest(`uploads/${encodeURIComponent(upload.id)}/part?partNumber=${index + 1}`, {
-          method: 'POST', authenticated: true, csrf: true,
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: chunk
-        });
-        break;
-      } catch (error) {
-        attempt += 1;
-        if (attempt >= 3 || (error.status && error.status < 500 && ![408, 429].includes(error.status))) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 400 * (2 ** (attempt - 1))));
-      }
-    }
-    uploadedBytes += chunk.size;
-    updateUploadProgress(progress, uploadedBytes, file.size);
-  }
-  const completed = await apiRequest(`uploads/${encodeURIComponent(upload.id)}/complete`, {
-    method: 'POST', authenticated: true, csrf: true, body: {}
-  });
-  updateUploadProgress(progress, file.size, file.size);
-  return normalizeResource(completed.resource || completed);
-}
-
 app.addEventListener('submit', async (event) => {
   if (event.target.id === 'adminLoginForm') {
     event.preventDefault();
@@ -766,20 +765,21 @@ app.addEventListener('submit', async (event) => {
     submitButton.textContent = currentLocale === 'en' ? 'Signing in…' : 'جارٍ تسجيل الدخول…';
     const formData = new FormData(event.target);
     try {
-      const session = await apiRequest('login', {
+      const session = await apiRequest('./api/login', {
         method: 'POST',
-        body: { username: formData.get('username'), password: formData.get('password') }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: formData.get('username'), password: formData.get('password') })
       });
-      saveAuth(session.token, session.csrfToken);
+      csrfToken = session.csrfToken;
       adminUsername = session.username;
-      records = (await apiRequest('resources')).map(normalizeResource);
+      records = await apiRequest('./api/resources');
       knownResourceIds = new Set(records.map((record) => record.id));
       refreshObjectUrls();
       render();
       announceToast('تم تسجيل الدخول بنجاح.');
     } catch (error) {
       console.warn('Administrator sign-in failed', error);
-      announceToast(error.message || (error.status === 401 ? 'بيانات تسجيل الدخول غير صحيحة.' : 'تعذّر تسجيل الدخول.'), false);
+      announceToast(error.status === 401 ? 'بيانات تسجيل الدخول غير صحيحة.' : 'تعذّر تسجيل الدخول.');
     } finally {
       form.dataset.submitting = 'false';
       form.removeAttribute('aria-busy');
@@ -799,12 +799,17 @@ app.addEventListener('submit', async (event) => {
   const safeUrl = safeExternalUrl(urlInput);
   if (urlInput && !safeUrl) return announceToast('أدخل رابطًا صحيحًا يبدأ بـ https أو http.');
   if (file && safeUrl) return announceToast('اختر رفع ملف أو إضافة رابط، وليس الاثنين معًا.');
+  if (file && file.size > uploadConfig.maxUploadBytes) return announceToast(`حجم الملف يتجاوز الحد ${formatFileSize(uploadConfig.maxUploadBytes)}.`);
   const type = String(data.get('type'));
-  if (file && file.type && !file.type.startsWith(`${type}/`) && !(type === 'pdf' && file.type === 'application/pdf')) {
+  const extension = file?.name.includes('.') ? `.${file.name.split('.').pop().toLowerCase()}` : '';
+  if (file && !fileExtensions[type]?.split(',').includes(extension)) {
+    return announceToast('امتداد الملف لا يتوافق مع نوع المحتوى المختار.');
+  }
+  if (file && file.type && file.type !== 'application/octet-stream' && !file.type.startsWith(`${type}/`) && !(type === 'pdf' && file.type === 'application/pdf')) {
     return announceToast(`نوع الملف لا يتوافق مع اختيار ${typeName(type)}.`);
   }
   if (type === 'video' && safeUrl && !youtubeEmbed(safeUrl)) return announceToast('رابط الفيديو يجب أن يكون من YouTube أو ارفع ملف فيديو.');
-  if (!file && !safeUrl && !old?.mediaBlob && !old?.fileUrl && !old?.mediaKey) return announceToast('أضف ملفًا أو رابطًا للمادة.');
+  if (!file && !safeUrl && !old?.mediaBlob && !old?.fileUrl) return announceToast('أضف ملفًا أو رابطًا للمادة.');
   const record = {
     id: editId || (crypto.randomUUID ? crypto.randomUUID() : `r-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     title: String(data.get('title') || '').trim(),
@@ -814,37 +819,29 @@ app.addEventListener('submit', async (event) => {
     termId: String(data.get('termId')),
     type,
     url: safeUrl,
-    mediaBlob: file || (safeUrl ? null : old?.mediaBlob || null),
     updatedAt: new Date().toISOString()
   };
+  if (storageMode === 'local') record.mediaBlob = file || (safeUrl ? null : old?.mediaBlob || null);
   form.dataset.submitting = 'true';
   form.setAttribute('aria-busy', 'true');
   const submitButton = form.querySelector('[type="submit"]');
-  const uploadProgress = form.querySelector('#uploadProgress');
   const originalLabel = submitButton.textContent;
   submitButton.disabled = true;
   submitButton.textContent = currentLocale === 'en' ? 'Saving…' : 'جارٍ الحفظ…';
   try {
     if (storageMode === 'server') {
-      if (!authToken || !csrfToken) throw new Error(currentLocale === 'ar' ? 'انتهت جلسة المسؤول. سجّل الدخول مجددًا.' : 'Your administrator session has expired. Sign in again.');
-      const metadata = {
-        id: record.id,
-        resourceId: editId || undefined,
-        title: record.title,
-        description: record.description,
-        gradeId: record.gradeId,
-        subjectId: record.subjectId,
-        termId: record.termId,
-        type: record.type,
-        url: safeUrl
-      };
+      if (!adminUsername || !csrfToken) throw new Error('Sign in as an administrator to continue.');
       const saved = file
-        ? await uploadResourceFile(file, metadata, uploadProgress)
-        : normalizeResource(await apiRequest(editId ? `resources/${encodeURIComponent(editId)}` : 'resources', {
-          method: editId ? 'PUT' : 'POST', authenticated: true, csrf: true, body: metadata
-        }));
+        ? await uploadResourceFile(file, record, !editId)
+        : await apiRequest(editId ? `./api/resources/${encodeURIComponent(editId)}` : './api/resources', {
+          method: editId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          body: JSON.stringify(record)
+        });
       records = [saved, ...records.filter((item) => item.id !== saved.id)];
       knownResourceIds.add(saved.id);
+      record.updatedAt = saved.updatedAt;
+      await refreshUploadConfig();
     } else {
       await writeRecord(record);
       records = await readAllRecords();
@@ -854,21 +851,37 @@ app.addEventListener('submit', async (event) => {
     render();
     if (old) announceToast('تم حفظ التعديلات.');
     else {
-      const saved = storageMode === 'server' ? records[0] : record;
-      announceToast(localizedNewMaterialMessage(saved), false);
-      notifyNewMaterial(saved);
+      announceToast(localizedNewMaterialMessage(record), false);
+      notifyNewMaterial(record);
     }
   } catch (error) {
     console.error(error);
-    if (error.status === 401) render();
-    announceToast(error.message || (storageMode === 'server' ? 'تعذّر حفظ المادة على الخادم.' : 'تعذّر حفظ المادة. قد يكون الملف أكبر من مساحة التخزين المتاحة.'), false);
+    if (error.code === 'storage_quota' || error.status === 507) announceToast('تم بلوغ حد التخزين الآمن للخطة المجانية. احذف مواد قديمة أو راجع الحصة المتاحة.');
+    else if (error.status === 413) announceToast(`حجم الملف يتجاوز الحد ${formatFileSize(uploadConfig.maxUploadBytes)}.`);
+    else announceToast(storageMode === 'server' ? 'تعذّر حفظ المادة على الخادم. تحقّق من الاتصال والحصة المتاحة ثم أعد المحاولة.' : 'تعذّر حفظ المادة. قد يكون الملف أكبر من مساحة التخزين المتاحة.');
   } finally {
     form.dataset.submitting = 'false';
     form.removeAttribute('aria-busy');
     submitButton.disabled = false;
     submitButton.textContent = originalLabel;
-    if (uploadProgress) uploadProgress.hidden = true;
   }
+});
+
+app.addEventListener('change', (event) => {
+  if (event.target.id === 'resourceType') {
+    const fileInput = document.getElementById('resourceFile');
+    const selectedFile = fileInput?.files?.[0];
+    const extensions = fileExtensions[event.target.value] || '';
+    if (fileInput) fileInput.accept = extensions;
+    if (selectedFile && !extensions.split(',').includes(`.${selectedFile.name.split('.').pop().toLowerCase()}`)) {
+      fileInput.value = '';
+      renderFilePreview(null);
+      announceToast('امتداد الملف لا يتوافق مع نوع المحتوى المختار.');
+    } else if (selectedFile) {
+      renderFilePreview(selectedFile);
+    }
+  }
+  if (event.target.id === 'resourceFile') renderFilePreview(event.target.files?.[0] || null);
 });
 
 app.addEventListener('click', async (event) => {
@@ -884,13 +897,13 @@ app.addEventListener('click', async (event) => {
   }
   if (event.target.closest('#adminLogout')) {
     try {
-      await apiRequest('logout', { method: 'POST', authenticated: true, csrf: true });
-      clearAuth();
+      await apiRequest('./api/logout', { method: 'POST', headers: { 'X-CSRF-Token': csrfToken } });
+      csrfToken = '';
+      adminUsername = '';
       render();
       announceToast('تم تسجيل الخروج.');
     } catch (error) {
       console.error(error);
-      if (error.status === 401) render();
       announceToast('تعذّر تسجيل الخروج.');
     }
     return;
@@ -912,11 +925,13 @@ app.addEventListener('click', async (event) => {
     deleteButton.disabled = true;
     try {
       if (storageMode === 'server') {
-        await apiRequest(`resources/${encodeURIComponent(record.id)}`, {
-          method: 'DELETE', authenticated: true, csrf: true
+        await apiRequest(`./api/resources/${encodeURIComponent(record.id)}`, {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': csrfToken }
         });
         records = records.filter((item) => item.id !== record.id);
         knownResourceIds.delete(record.id);
+        await refreshUploadConfig();
       } else {
         await removeRecord(record.id);
         records = await readAllRecords();
@@ -927,7 +942,6 @@ app.addEventListener('click', async (event) => {
       announceToast('حُذفت المادة.');
     } catch (error) {
       console.error(error);
-      if (error.status === 401) render();
       announceToast(storageMode === 'server' ? 'تعذّر حذف المادة من الخادم.' : 'تعذّر حذف المادة.');
       deleteButton.disabled = false;
     }
@@ -997,7 +1011,6 @@ window.addEventListener('online', () => {
 window.addEventListener('offline', () => { document.getElementById('offlineBanner').hidden = false; });
 window.addEventListener('focus', syncSharedResources);
 document.addEventListener('visibilitychange', syncSharedResources);
-window.setInterval(syncSharedResources, 60_000);
 if (!navigator.onLine) document.getElementById('offlineBanner').hidden = false;
 
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
