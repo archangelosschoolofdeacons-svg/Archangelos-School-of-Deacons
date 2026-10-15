@@ -1,71 +1,104 @@
 # مدرسة أرشى أنجيلوس للشمامسة
 
-تحتفظ هذه النسخة بالموقع الثابت الحالي باللغتين، وتربطه بخدمة Cloudflare Worker وقاعدة D1 وحاوية R2 الموجودين بالفعل.
+تحتفظ هذه النسخة بتصميم الموقع العربي والإنجليزي وشعاره وتنقّله ولوحة الإدارة الموجودة. يستخدم التخزين المشترك Worker واحدًا من Cloudflare وD1 للبيانات الوصفية وR2 خاصًا بالملفات. لا ينشئ هذا المصدر موارد سحابية أو يغيّر إعدادات الفوترة.
 
-## النشر
+## ما كشفته المراجعة
 
-### واجهة GitHub Pages
+- يحتوي ملف ZIP على لقطات مؤرخة متعددة للمشروع. يحفظ خادم Python القديم SQLite والملفات على القرص؛ ويختار إعداد Render المرفق خدمة `starter` وقرصًا دائمًا بسعة 1 GB. لا يحدد الأرشيف أي لقطة تعمل حاليًا.
+- يقبل مسار الرفع القديم ملفات حتى 100 MiB ويقرأ الطلب كاملًا في الذاكرة، لذلك لا يدعم فيديو 500 MB، كما أن قرص 1 GB لا يفي بحد المكتبة الحالي البالغ 8 GB.
+- تصف لقطة أخرى في README استخدام Vercel/Supabase مع غياب ملفات API ومصدر Supabase. يعتمد هذا التسليم على لقطة Worker/D1/R2 الأحدث.
+- نجح فحص سلامة قاعدة SQLite القديمة، لكنها تحتوي **0 مادة** ومجلد الملفات المرفوعة يحتوي **0 ملف**. هذا لا يثبت حالة خدمة منشورة منفصلة لم تكن متاحة في التدقيق.
+- ما زال معرّف D1 في إعداد Worker قيمة صفرية تجريبية، ولم تتوفر كلمة مرور المسؤول أو موارد Cloudflare الحية للتحقق؛ لذا يظل الاتصال بالتخزين الحي غير مؤكد.
 
-انشر محتويات هذا المجلد في جذر مستودع GitHub Pages الحالي. أبقِ `index.html` و`app.js` و`localization.js` و`styles.css` و`sw.js` وملفات manifest ومجلد `assets/` معًا. لا تحتاج الواجهة إلى خطوة بناء. عنوان API مضبوط مسبقًا على:
+## حدود الخطة المجانية والتخزين
 
-`https://archangelos-deacons-api-2026.archangelosschoolofdeacons.workers.dev`
+وفق الوثائق الرسمية التي تمت مراجعتها في 15 أكتوبر 2026:
 
-### Cloudflare Worker
+- R2 Standard: سعة 10 GB-month، ومليون عملية Class A، و10 ملايين Class B شهريًا، مع نقل بيانات خارج R2 دون رسوم. ما يتجاوز المجاني قابل للفوترة: التخزين 0.015 دولار لكل GB-month، وClass A بسعر 4.50 دولارات للمليون، وClass B بسعر 0.36 دولار للمليون.
+- Workers Free: 100,000 طلب يوميًا، و10 ms CPU لكل استدعاء، وحد حجم طلب 100 MB لحساب Cloudflare المجاني.
+- D1 Free: حد أقصى 500 MB لقاعدة واحدة، و5 GB إجماليًا للحساب، و5 ملايين صف مقروء يوميًا، و100,000 صف مكتوب يوميًا. يحتفظ Time Travel لمدة 7 أيام. عند بلوغ الحد المجاني تتوقف الاستعلامات حتى إعادة ضبط الحصة، ولا يتم ترقية الخطة تلقائيًا من هذا المشروع.
+- يدعم R2 الرفع المجزأ لكائنات حتى 5 TiB وبحد أقصى 10,000 جزء. يضبط التطبيق حد الملف على 5 GiB ويرفعه على دفعات 32 MiB. فيديو 500 MiB يحتاج 16 جزءًا و600 MiB يحتاج 19 جزءًا. يغطي الاختبار المسار بمحاكاة محلية فقط؛ لم يُرفع ملف يتجاوز 500 MB إلى R2 حي. حد مكتبة التطبيق 8,000,000,000 بايت ولا يشمل استخدام R2 الآخر في الحساب.
+- يظل مخزن R2 خاصًا، وتُعرض الملفات العامة من خلال Worker مع دعم طلبات النطاق `Range`. لا توجد حاجة إلى رابط `r2.dev` العام أو إعداد CORS للمتصفح. طلبات الوسائط ما زالت تستهلك حصة Worker وعمليات قراءة R2.
+- تحتفظ PWA بقائمة المواد العامة، وبحد أقصى 20 ملف وسائط كاملًا لا يتجاوز حجم كل منها 5 MiB، في ذاكرة المتصفح المؤقتة. تبقى ملفات الوسائط الكبيرة وطلبات `Range` بحاجة إلى اتصال، وهذه الذاكرة ليست التخزين الدائم للملفات.
 
-يوجد إعداد النشر في `worker/wrangler.toml`. قبل النشر، استبدل `REPLACE_WITH_EXISTING_DATABASE_ID` بمعرّف قاعدة `archangelos-content` الموجودة. لا تنشئ قاعدة D1 أو حاوية R2 إضافية. تأكد من أن الربطين هما `DB` مع `archangelos-content` و`MEDIA` مع `archangelos-media`.
+يدعم تصميم التطبيق رفع R2 المجزأ عبر Worker مع إبقاء الحاوية خاصة وعرض الوسائط من خلال Worker. حدوده المبرمجة لا تعني أن رفعًا حيًا كبيرًا قد تم اختباره؛ يلزم إعداد الحساب والتحقق من الفوترة قبل الاستخدام.
 
-من مجلد `worker` وباستخدام Node.js 20 أو أحدث:
+يتطلب تفعيل R2 إتمام الاشتراك وإضافة وسيلة دفع أساسية لشراء الخدمات. تكون التكلفة المتوقعة 0 دولار فقط ما دام استخدام الحساب ضمن الحصص المجانية؛ وما يتجاوزها يخضع للقياس وقد يُحصّل تلقائيًا. **لا يوجد حد إنفاق ثابت في التطبيق. لا تفعّل R2 أو تضف وسيلة دفع لهذا المشروع دون موافقتك.** يضع التطبيق حدًا على سعة الملفات التي يتابعها، لكنه لا يحد عمليات R2 على مستوى الحساب أو استخدام مشاريع أخرى. راجع [خطوات تفعيل R2](https://developers.cloudflare.com/r2/get-started/)، و[اشتراط وسيلة الدفع](https://developers.cloudflare.com/billing/get-started/create-billing-profile/)، و[سياسة الفوترة والحجز المسبق](https://developers.cloudflare.com/billing/understand/billing-policy/) قبل اتخاذ القرار. لا تشير وثائق الحدود التي راجعناها إلى إيقاف تلقائي بسبب الخمول. تبقى الملفات العادية حتى حذفها أو تطبيق قاعدة دورة حياة؛ أما الرفع المجزأ غير المكتمل فينتهي بعد 7 أيام.
 
-```powershell
-npm install
-npx wrangler whoami
-npx wrangler deploy
-```
+روابط الوثائق الرسمية: [أسعار R2](https://developers.cloudflare.com/r2/pricing/)، [تهيئة R2](https://developers.cloudflare.com/r2/get-started/)، [الفوترة ووسائل الدفع](https://developers.cloudflare.com/billing/get-started/create-billing-profile/)، [سياسة الفوترة والحجز المسبق](https://developers.cloudflare.com/billing/understand/billing-policy/)، [حدود الرفع المجزأ](https://developers.cloudflare.com/r2/objects/upload-objects/)، [حدود Workers](https://developers.cloudflare.com/workers/platform/limits/)، [أسعار D1](https://developers.cloudflare.com/d1/platform/pricing/)، [حدود D1 والاحتفاظ](https://developers.cloudflare.com/d1/platform/limits/).
 
-عند إعادة نشر Worker نفسه، تبقى قيمة السر الحالية `ADMIN_PASSWORD`. تحقق من وجودها في لوحة Cloudflare أو باستخدام `npx wrangler secret list`. استخدم `npx wrangler secret put ADMIN_PASSWORD` فقط إذا كانت مفقودة أو يلزم تغييرها؛ سيطلب Wrangler القيمة تفاعليًا. لا تضعها في هذا المستودع أو في كود الواجهة. اسم المستخدم `admin` وأصل GitHub Pages المحدد متغيران عاديان في `wrangler.toml`.
+## التشغيل المحلي
 
-يخدم Worker واجهات API والملفات، بينما يخدم GitHub Pages الواجهة الثابتة فقط. ملفات `server.py` وإعدادات Render وVercel القديمة ليست جزءًا من هذا النشر.
-
-## قاعدة البيانات والإجراءات اليدوية
-
-لا تُحذف المواد الحالية ولا توجد ترحيلة لجدول الموارد. يقرأ Worker أعمدة `resources` الحالية ويكتب `id` و`title` و`description` و`grade_id` و`subject_id` و`term_id` و`kind` و`url` و`file_name` و`updated_at`.
-
-يستخدم الرفع أعمدة `uploads` الحالية: `id` و`objectKey` و`uploadId` و`metadataJson` و`expectedSize` و`contentType` و`createdAt` و`owner`، وأعمدة `upload_parts`: `uploadId` و`partNumber` و`etag`. لا تحتاج هذه الجداول إلى ترحيلة إذا كانت أعمدتها كما وردت.
-
-يفحص Worker أعمدة `admin_sessions` ويدعم أسماء شائعة لمعرّف الجلسة وبصمة CSRF ووقت الانتهاء. افحص الجدول أولًا عبر `PRAGMA table_info(admin_sessions);`. إذا كانت الأعمدة الثلاثة التالية غير موجودة، أضفها فقط:
-
-```sql
-ALTER TABLE admin_sessions ADD COLUMN tokenHash TEXT;
-ALTER TABLE admin_sessions ADD COLUMN csrfToken TEXT;
-ALTER TABLE admin_sessions ADD COLUMN expiresAt TEXT;
-```
-
-إذا لم يكن الجدول نفسه موجودًا، أنشئ `admin_sessions` بهذا الشكل بدل إنشاء جدول جلسات آخر:
-
-```sql
-CREATE TABLE admin_sessions (
-  tokenHash TEXT PRIMARY KEY,
-  csrfToken TEXT NOT NULL,
-  username TEXT NOT NULL,
-  expiresAt TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-);
-```
-
-لا تنفّذ `ALTER TABLE` لعمود موجود. لا تتطلب هذه النسخة ترحيلات SQL أخرى.
-
-## حدود الرفع
-
-يرسل المتصفح أجزاء الملف بالتتابع، عادةً بحجم 8 MiB. يرفع Worker حجم الجزء تدريجيًا للملفات الكبيرة حتى 64 MiB كي لا يتجاوز حد R2 البالغ 10,000 جزء. الحد المضبوط في التطبيق هو 625 GiB، لكنه ليس ضمانًا بأن خطة الحساب قادرة على تخزين هذا الحجم أو تقديمه. توثّق Cloudflare حدًا أدنى قدره 5 MiB للجزء (باستثناء الأخير)، وحدًا أقصى 5 GiB للجزء، و10,000 جزء، وحجمًا أقصى قدره 5 TiB للكائن متعدد الأجزاء. [توثيق R2](https://developers.cloudflare.com/r2/objects/upload-objects/)
-
-لا يرسل Worker الفيديو كاملًا في طلب واحد. يختلف حد جسم الطلب حسب خطة Cloudflare (حاليًا 100 MB لـ Free وPro، و200 MB لـ Business، وحتى 5 GB لـ Enterprise). تظل حدود الحساب والحصص والتخزين والعمليات والنطاق الترددي سارية. حجم الجزء الأقصى هنا 64 MiB، لكن راجع إعدادات الحساب الحالية قبل نشر ملفات كبيرة. [حدود Workers](https://developers.cloudflare.com/workers/platform/limits/)
-
-## الفحوصات المحلية
+يتطلب المشروع Node.js 22 أو أحدث وPython 3.10 أو أحدث. تعمل محاكاة Wrangler محليًا ولا تتصل بسحابة Cloudflare.
 
 ```powershell
-cd worker
+npm ci
+Copy-Item .dev.vars.example .dev.vars
+# عدّل .dev.vars وضع كلمة مرور محلية فريدة من 12 حرفًا على الأقل.
+npm run db:migrate:local
+npm run dev
+```
+
+افتح العنوان الذي يطبعه Wrangler، غالبًا `http://localhost:8787`، ثم افتح `#/admin`.
+
+يتضمن `npm test` محول D1 مبنيًا على SQLite ومحاكاة R2 في الذاكرة؛ ولا يتصل الاختبار بـCloudflare. تعذّر على أمر ترحيل D1 المحلي المنفصل إكمال التنفيذ في بيئة التدقيق بسبب فشل طلب شبكة من Wrangler. لا يعني ذلك نجاح ترحيل محلي عبر Wrangler.
+
+```powershell
 npm test
 npm run check
+python -m py_compile tools/backup_legacy.py tools/prepare_legacy_migration.py
 ```
 
-طلبات قراءة الموارد والوسائط عامة ولا تحمل بيانات اعتماد المسؤول. تحفظ الواجهة رمز Bearer ورمز CSRF في `sessionStorage` الخاص بعلامة التبويب، ويتحقق Worker من كل عملية كتابة. كلمة المرور لا تدخل في ملفات الواجهة.
+## تهيئة Cloudflare والنشر
+
+1. راجع الأسعار وشروط Cloudflare. يتطلب اشتراك R2 إتمام checkout وإضافة وسيلة دفع أساسية، ويمكن فوترة الاستخدام فوق الحصة المجانية. لا تتابع ما لم توافق صراحةً على هذا التعرض للفوترة.
+2. بعد الموافقة، أنشئ يدويًا R2 bucket باسم `archangelos-school-materials` وقاعدة D1 باسم `archangelos-school-content`. اترك الحاوية خاصة.
+3. انسخ معرّف قاعدة D1 إلى `wrangler.jsonc` بدل المعرّف الصفري التجريبي.
+4. أكمل خطوات النسخ الاحتياطي والتراجع في القسم التالي وتحقق منها قبل تشغيل ترحيل قاعدة بعيدة. طبّق المخطط الأولي على قاعدة D1 الجديدة والفارغة فقط، ثم عيّن كلمة مرور المسؤول كسرّ على Worker وانشر:
+
+   ```powershell
+   npx wrangler d1 migrations apply archangelos-school-content --remote
+   npx wrangler secret put ARCHANGELOS_ADMIN_PASSWORD
+   npm run deploy
+   ```
+
+اسم المسؤول الافتراضي `admin` ويمكن تغييره في `wrangler.jsonc`. حد الملف الافتراضي 5 GiB، وحد الملفات الإجمالي للتطبيق 8,000,000,000 بايت. لا ترفع الحد قبل مراجعة الاستهلاك والأسعار. كلمة المرور ومفتاح التخزين لا يظهران في المتصفح، ولا يحتاج رمز الجلسة إلى سر توقيع منفصل.
+
+لا تُستخدم أوامر إنشاء الموارد التالية إلا بعد مراجعة الأسعار:
+
+```powershell
+npx wrangler r2 bucket create archangelos-school-materials
+npx wrangler d1 create archangelos-school-content
+```
+
+لم يتم تشغيل هذه الأوامر هنا. اختبر أولًا رابط `workers.dev`. النطاق الخاص اختياري ويتطلب نطاقًا تملكه بالفعل.
+
+## نسخ البيانات السابقة والاستيراد والتراجع
+
+لم تتوفر بيانات خدمة Render المنشورة، ولم يتم ترحيل بيانات إنتاج. إذا كانت هناك قاعدة وملفات على الخدمة الحالية، أوقف تغييرات الإدارة مؤقتًا، ونزّل `content.sqlite3` ومجلد `uploads/` كاملًا إلى جهاز موثوق، ثم أنشئ نسخة تحقق وحزمة استيراد:
+
+قبل تغيير مخطط قاعدة D1 موجودة، صدّرها إلى نسخة محلية وتحقق من بصمتها. لم يُشغّل الأمر التالي لعدم وجود قاعدة Cloudflare مهيأة:
+
+```powershell
+New-Item -ItemType Directory -Force .\backups | Out-Null
+npx wrangler d1 export archangelos-school-content --remote --output .\backups\archangelos-school-content-before.sql
+Get-FileHash .\backups\archangelos-school-content-before.sql -Algorithm SHA256
+```
+
+طبّق المخطط الأولي على قاعدة D1 جديدة وفارغة فقط. للتراجع، احتفظ بالقاعدة والحاوية والموقع القديم والنسخة المحلية والملفات دون تغيير؛ أوقف الكتابة واستعد النسخة إلى قاعدة D1 مستقلة للتراجع قبل إعادة ربط Worker. راجع [تصدير واستيراد D1](https://developers.cloudflare.com/d1/best-practices/import-export-data/) و[ترحيلات D1](https://developers.cloudflare.com/d1/reference/migrations/).
+
+```powershell
+python tools/prepare_legacy_migration.py `
+  --database 'D:\backup\content.sqlite3' `
+  --uploads 'D:\backup\uploads' `
+  --output 'D:\backup\archangelos-migration-pack' `
+  --bucket archangelos-school-materials
+```
+
+تتضمن الحزمة نسخة SQLite والملفات مع بصمات SHA-256، وسكربت رفع إلى R2 وملف SQL لقاعدة D1. راجع جميع الملفات قبل تشغيل سكربتات الاستيراد. الأداة تنشئ ملفات محلية فقط، ولا تغيّر المصدر أو تتصل بـCloudflare. يجب الاستيراد إلى bucket وقاعدة جديدين وفارغين، مع إبقاء خدمة Render والنسخة الاحتياطية دون تغيير حتى اكتمال التحقق.
+
+للتراجع قبل توجيه المستخدمين، اترك الرابط القديم متاحًا وأعد توجيههم إليه. بعد تسجيل تغييرات جديدة على Cloudflare، أوقف الرفع والحذف قبل أي رجوع، ثم صدّر أو طابق هذه التغييرات؛ فقاعدة SQLite القديمة لا تستقبل تغييرات Worker تلقائيًا. لا تحذف القرص أو الملفات القديمة أثناء النقل.
+
+## ما تم التحقق منه وما ينتظر الإعداد
+
+نجحت 13 حالة اختبار عبر `npm test`. تغطي صيغ الوسائط وبصماتها وحدودها، ورفض المصادقة والطلبات العابرة للأصل، وإعادة محاولة الجزء، ورفع الملفات الصوتية والصور وPDF والفيديو بالمحاكاة، وقراءة نطاق بايت، وتنزيل مرفق، واستبدالًا متزامنًا، وانتهاء الجلسة، والتنظيف عند فشل D1. استخدم الاختبار ملفات صغيرة ومحاكاة R2؛ اجتاز MP4 بحجم 600 MiB فحص الحد فقط ولم يُرفع. نجح `npm run check` وفحص Python وفحص المسارات الثابتة وشجرة الاعتماديات والتجربة الجافة لـWrangler. تعذّر ترحيل D1 المحلي المنفصل بسبب فشل اتصال الشبكة في Wrangler. لم يُختبر النشر أو تخزين R2 الحي أو رفع فعلي أكبر من 500 MB أو تشغيل المتصفح أو ثبات بيانات الإنتاج.
