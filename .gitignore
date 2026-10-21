@@ -9,7 +9,6 @@ node_modules/
 __pycache__/
 *.py[cod]
 .vercel/
-.backups/
 .DS_Store
 *.sqlite
 *.sqlite3

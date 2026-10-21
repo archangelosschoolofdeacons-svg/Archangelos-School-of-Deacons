@@ -1,0 +1,9 @@
+
+name = "archangelos-school-of-deacons"
+main = "worker.js"
+compatibility_date = "2026-10-14"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "archangelos-content"
+database_id = "bf56c555-8fbe-4b80-be66-d28132eef122"
